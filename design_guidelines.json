@@ -1,0 +1,183 @@
+{
+  "app_name": "Kerjo",
+  "personality": "4 Tactile / Playful LIGHT",
+  "personality_one_liner": "A warm, energetic, and highly accessible matching experience crossing the approachability of a dating app with the trust of a local job board.",
+  "color": {
+    "surface": "#FDFDFD",
+    "onSurface": "#111111",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#111111",
+    "surfaceTertiary": "#F7F7F7",
+    "onSurfaceTertiary": "#333333",
+    "surfaceInverse": "#1C1C1C",
+    "onSurfaceInverse": "#FFFFFF",
+    "brand": "#E62429",
+    "brandPrimary": "#E62429",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#FFEBED",
+    "onBrandSecondary": "#D31225",
+    "brandTertiary": "#FFF0F2",
+    "onBrandTertiary": "#C00F21",
+    "success": "#059669",
+    "onSuccess": "#FFFFFF",
+    "warning": "#EAB308",
+    "onWarning": "#FFFFFF",
+    "error": "#DC2626",
+    "onError": "#FFFFFF",
+    "info": "#0284C7",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E5E5",
+    "borderStrong": "#D4D4D4",
+    "divider": "#F0F0F0",
+    "muted": "#737373",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous touch targets (min 44pt), comfortable paddings, intentional whitespace. Cards use md/lg margins to allow background to breathe.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 24,
+    "pill": 999
+  },
+  "shadow_tier": "2",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "true",
+    "do's": [
+      "Use blur on the bottom tab bar where the swipe stack scrolls behind it.",
+      "Use blur on the top sticky mode toggle / filter chips if they overlay the card stack.",
+      "Apply glassmorphism to Floating Action Buttons (Like/Pass) that sit over the swipe card."
+    ],
+    "dont's": [
+      "Do not use glass inside the forms or chat lists.",
+      "Do not blur primary CTA buttons."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler",
+    "swipe_cards": "react-native-deck-swiper"
+  },
+  "screens": [
+    {
+      "name": "Landing",
+      "purpose": "Welcomes users and facilitates Google Login.",
+      "states": {
+        "loading": "Centered spinner",
+        "empty": "N/A",
+        "error": "Error toast with retry CTA"
+      },
+      "layout": "Full-screen layout with an energetic hero image covering the top 50%. A white surface container slides up from the bottom containing the Kerjo logo, 'Temukan kerja terpercaya secepat swipe' tagline, and a prominent Google login CTA (pill-shaped, 56pt height). Safe area bottom applied."
+    },
+    {
+      "name": "Swipe Stack (Home)",
+      "purpose": "Core discovery feed for shortlisting/applying to jobs or workers.",
+      "states": {
+        "loading": "Skeleton of a swipe card",
+        "empty": "Illustration of a relaxing scene + 'No more nearby options! Check back later.' + Refresh CTA",
+        "error": "Readable network error + Retry CTA"
+      },
+      "layout": "Top layer: Sticky header with 'Looking for Work / Hiring' pill toggle, followed by a horizontally scrolling row of filter chips (brandTertiary bg, onBrandTertiary text). Middle layer: Full-bleed portrait cards (radius lg 24px) utilizing 100% width minus lg padding. Each card has an image, overlaid with a 3-stop gradient scrim (transparent -> 20% surfaceInverse -> 70% surfaceInverse) at the bottom. Text at bottom includes name, role, verified badge (success), stars (warning), and prominent category icon. Bottom layer: Floating circular buttons for Reject (X) and Accept (Heart/Apply) placed in the thumb zone."
+    },
+    {
+      "name": "Post a Job",
+      "purpose": "Quick form to create a new job listing.",
+      "states": {
+        "loading": "Spinner on submit button",
+        "empty": "N/A",
+        "error": "Form validation errors displayed below fields in error color"
+      },
+      "layout": "Single-column form. Labels positioned above inputs. Inputs use surfaceTertiary background with no borders. 'Post Job' CTA is pinned to the bottom inside KeyboardAvoidingView with generous touch targets (min 44pt)."
+    },
+    {
+      "name": "Match Celebration",
+      "purpose": "Animated overlay when a mutual swipe occurs.",
+      "states": {
+        "loading": "N/A",
+        "empty": "N/A",
+        "error": "N/A"
+      },
+      "layout": "Full-screen absolute overlay with surfaceInverse background (90% opacity). Central 'handshake success' image with 'It's a Match! 🎉' display typography. Two stacked buttons: 'Message Now' (brandPrimary) and 'Keep Swiping' (outlined/muted)."
+    },
+    {
+      "name": "Chat & Review",
+      "purpose": "List of matches and 1:1 conversation view with completion tracking.",
+      "states": {
+        "loading": "Skeleton list / message bubbles",
+        "empty": "Illustration + 'Start swiping to get matches!'",
+        "error": "Network error + Retry CTA"
+      },
+      "layout": "Standard chat UI. The 1:1 view features a sticky header with the matched user's avatar and a prominent 'Mark Job as Done' button, triggering a bottom-sheet for leaving a star rating and casual review."
+    },
+    {
+      "name": "Profile",
+      "purpose": "Detailed view showing trust scores and user testimonials.",
+      "states": {
+        "loading": "Profile skeleton",
+        "empty": "N/A",
+        "error": "Error fetching profile + Retry"
+      },
+      "layout": "Scroll view. Top section: cover banner (real image) with avatar overlapping the bottom edge. High contrast hierarchy for trust score, number of completed jobs, and verified badges. Below: Stacked review cards with surfaceSecondary background, md radius, and muted quote text."
+    }
+  ],
+  "images": {
+    "hero_barista": {
+      "url": "https://images.pexels.com/photos/7175995/pexels-photo-7175995.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Asian female barista smiling in kitchen"
+    },
+    "hero_driver": {
+      "url": "https://images.pexels.com/photos/7363101/pexels-photo-7363101.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Confident delivery driver standing by van"
+    },
+    "match_handshake": {
+      "url": "https://images.unsplash.com/photo-1638262052640-82e94d64664a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2OTV8MHwxfHNlYXJjaHwxfHxoYW5kc2hha2UlMjBzdWNjZXNzJTIwbWF0Y2h8ZW58MHx8fHwxNzg5NzczNzIxfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Two people shaking hands over a wooden table"
+    }
+  },
+  "haptics": {
+    "swipe_left": "impactLight",
+    "swipe_right": "impactMedium",
+    "match_celebration": "notificationSuccess",
+    "mark_job_done": "impactMedium",
+    "tab_press": "selection"
+  },
+  "instructions_to_main_agent": [
+    "MAX FONT WEIGHT IS 500. DO NOT USE BOLD, 600, 700, 800, or 900. Use sizing for hierarchy, not weight.",
+    "Implement the full-bleed portrait swipe card with a 3-stop vertical gradient scrim (transparent -> 20% surfaceInverse -> 70% surfaceInverse) at the bottom to ensure text readability over varying photos.",
+    "Place the action buttons (Reject/Accept) as floating elements layered on top of the swipe card near the bottom, utilizing glassmorphism.",
+    "Always provide loading, empty, and error states for all screens. Set flex: 1 and use a centered layout for these states.",
+    "All tap targets (buttons, filter chips, list rows) must be at least 44x44pt.",
+    "In the Chat view, place the 'Mark Job as Done' button in the chat header or pinned at the top of the chat to keep it always accessible.",
+    "Integrate haptic feedback for swipe interactions and tab changes.",
+    "Follow the accessibility guidelines for density and clear labeling; ensure grouping of layout elements avoids clutter for low-literacy users."
+  ]
+}

@@ -1,0 +1,205 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { ScrollView, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+import { Chip, PrimaryButton } from "@/src/components/ui";
+import { useToast } from "@/src/components/toast";
+import { CATEGORIES, EXPERIENCE_LABELS, JOB_TYPES, categoryIcon } from "@/src/constants";
+import { createJob } from "@/src/api";
+import { usesNativeTabs } from "@/src/navigation";
+import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+
+const PAY_UNITS = ["/jam", "/hari", "/minggu", "/bulan", "/proyek", "/acara"];
+
+export default function PostJob() {
+  const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+
+  const [business, setBusiness] = useState("");
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState(CATEGORIES[0]);
+  const [payAmount, setPayAmount] = useState("");
+  const [payUnit, setPayUnit] = useState(PAY_UNITS[1]);
+  const [jobType, setJobType] = useState(JOB_TYPES[0]);
+  const [experience, setExperience] = useState(EXPERIENCE_LABELS[0]);
+  const [description, setDescription] = useState("");
+
+  const bottomChrome = usesNativeTabs ? insets.bottom : 0;
+
+  const mutation = useMutation({
+    mutationFn: createJob,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["browse"] });
+      toast("Lowongan berhasil dipasang! 🎉", "success");
+      setBusiness("");
+      setTitle("");
+      setPayAmount("");
+      setDescription("");
+    },
+    onError: () => toast("Gagal memasang lowongan", "error"),
+  });
+
+  function submit() {
+    if (!business.trim() || !title.trim() || !payAmount.trim()) {
+      toast("Lengkapi nama, posisi, dan bayaran", "error");
+      return;
+    }
+    mutation.mutate({
+      business: business.trim(),
+      title: title.trim(),
+      category,
+      pay_amount: parseInt(payAmount.replace(/\D/g, ""), 10) || 0,
+      pay_unit: payUnit,
+      distance_km: 2.0,
+      job_type: jobType,
+      min_experience_label: experience,
+      description: description.trim(),
+    });
+  }
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]} testID="post-screen">
+      <Text style={styles.title}>Pasang Lowongan</Text>
+      <Text style={styles.subtitle}>Isi detail pekerjaan, langsung tampil di swipe</Text>
+
+      <KeyboardAwareScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.form}
+        bottomOffset={90}
+        showsVerticalScrollIndicator={false}
+      >
+        <Field label="Nama Usaha / Keluarga">
+          <TextInput
+            style={styles.input}
+            value={business}
+            onChangeText={setBusiness}
+            placeholder="cth. Warung Bu Yanti"
+            placeholderTextColor={colors.muted}
+            testID="input-business"
+          />
+        </Field>
+
+        <Field label="Posisi / Pekerjaan">
+          <TextInput
+            style={styles.input}
+            value={title}
+            onChangeText={setTitle}
+            placeholder="cth. Bantu Masak & Bersih-bersih"
+            placeholderTextColor={colors.muted}
+            testID="input-title"
+          />
+        </Field>
+
+        <Field label="Kategori">
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+            {CATEGORIES.map((c) => (
+              <Chip key={c} label={c} icon={categoryIcon(c)} active={category === c} onPress={() => setCategory(c)} />
+            ))}
+          </ScrollView>
+        </Field>
+
+        <View style={styles.rowFields}>
+          <Field label="Bayaran (Rp)" style={{ flex: 1 }}>
+            <TextInput
+              style={styles.input}
+              value={payAmount}
+              onChangeText={setPayAmount}
+              placeholder="120000"
+              keyboardType="number-pad"
+              placeholderTextColor={colors.muted}
+              testID="input-pay"
+            />
+          </Field>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipScroll}>
+          {PAY_UNITS.map((u) => (
+            <Chip key={u} label={u} active={payUnit === u} onPress={() => setPayUnit(u)} />
+          ))}
+        </ScrollView>
+
+        <Field label="Tipe Kerja">
+          <View style={styles.wrapChips}>
+            {JOB_TYPES.map((t) => (
+              <Chip key={t} label={t} active={jobType === t} onPress={() => setJobType(t)} />
+            ))}
+          </View>
+        </Field>
+
+        <Field label="Pengalaman Minimal">
+          <View style={styles.wrapChips}>
+            {EXPERIENCE_LABELS.map((e) => (
+              <Chip key={e} label={e} active={experience === e} onPress={() => setExperience(e)} />
+            ))}
+          </View>
+        </Field>
+
+        <Field label="Deskripsi">
+          <TextInput
+            style={[styles.input, styles.textarea]}
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Jelaskan tugas dan harapanmu…"
+            placeholderTextColor={colors.muted}
+            multiline
+            testID="input-description"
+          />
+        </Field>
+      </KeyboardAwareScrollView>
+
+      <KeyboardStickyView offset={{ closed: 0, opened: spacing.md }}>
+        <View style={[styles.footer, { paddingBottom: bottomChrome + spacing.md }]}>
+          <PrimaryButton
+            label="Pasang Lowongan"
+            icon="send"
+            loading={mutation.isPending}
+            onPress={submit}
+            testID="submit-job"
+          />
+        </View>
+      </KeyboardStickyView>
+    </View>
+  );
+}
+
+function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: any }) {
+  const styles = useStyles();
+  return (
+    <View style={[{ marginBottom: spacing.lg }, style]}>
+      <Text style={styles.label}>{label}</Text>
+      {children}
+    </View>
+  );
+}
+
+const useStyles = makeStyles((colors) => ({
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.lg },
+  title: { fontFamily: fonts.medium, fontSize: 28, color: colors.onSurface },
+  subtitle: { fontFamily: fonts.regular, fontSize: 14, color: colors.muted, marginTop: 2, marginBottom: spacing.md },
+  form: { paddingTop: spacing.sm, paddingBottom: spacing.xl },
+  label: { fontFamily: fonts.medium, fontSize: 14, color: colors.onSurface, marginBottom: spacing.sm },
+  input: {
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 16,
+    color: colors.onSurface,
+  },
+  textarea: { minHeight: 96, textAlignVertical: "top", paddingTop: spacing.md },
+  rowFields: { flexDirection: "row", gap: spacing.md },
+  chipScroll: { gap: spacing.sm, paddingBottom: spacing.md },
+  wrapChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+}));
