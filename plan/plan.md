@@ -1,83 +1,48 @@
-# Kerjo — App Details
+# Getting the Kerjo source code into your own repository
 
-## What it is
-Kerjo is a swipe-based, Bumble-style matching app that connects local workers with nearby
-businesses and households offering jobs in Indonesia. It covers all kinds of work — from
-professional gigs (design, admin, web dev, tutoring) to informal/manual labor (cleaning,
-construction, delivery, cooking, gardening, babysitting, driving). Every account can switch
-between two sides from a single login.
+## What you asked
+"Can I get the source code and move it into my own repository?"
 
-Tagline: "Temukan kerja terpercaya secepat swipe."
+## Short answer
+Yes. The full source code of your Kerjo app (frontend, backend, and config) is
+yours and can be moved to your own GitHub repository. This is a built‑in platform
+capability, not something that needs to be coded or built.
 
-## Who it's for
-- People looking for work — fresh graduates and manual/informal workers alike.
-- People hiring — small businesses, warungs, households, kos owners, event organizers.
+## The two ways to get your code
 
-## How a person uses it
-1. Sign in with Google (one account works on any device).
-2. First-time users are offered a quick worker-profile form (name, category, experience,
-   availability, tariff, short bio) — this is optional and skippable.
-3. On the main screen a toggle switches between two modes:
-   - "Cari Kerja" — swipe through JOB cards. Right = lamar (apply), left = lewat (skip).
-   - "Merekrut" — swipe through WORKER profiles. Right = simpan/minat, left = lewat.
-     Employers post jobs from the "Pasang" tab.
-4. Tapping a card's info button opens full details; worker cards open a full profile with
-   trust score and reviews.
-5. When both sides like each other, an animated "It's a Match!" screen appears and a chat
-   opens. Inside chat, either side can tap "Selesai" (Mark Job as Done) to leave a star
-   rating + short comment.
+### Option A — Push to GitHub (recommended)
+- Use the **"Save to GitHub" / "Push to GitHub"** action in the top‑right menu of the workspace.
+- You connect (authorize) your GitHub account once, choose or create a repository, and
+  the entire codebase is pushed there.
+- After the first push, you can keep pushing updates to the same repo as you make changes.
+- This keeps a normal Git repository you fully own and can clone, branch, and self‑host.
 
-## How matching works (the core behavior)
-- A match is real and two-sided: it forms only when a worker likes an employer's job AND
-  that employer likes the worker's profile (in either order).
-- Both accounts then see the same match and share the same chat. A message sent from one
-  device shows up for the other account on its own device.
-- Everything (accounts, profiles, jobs, swipes, matches, chats, ratings) is stored in a
-  real database and works across two separate devices — not a local simulation.
-- Note: the built-in sample workers and sample jobs (see below) are demo entries with no
-  human behind them, so swiping right on those produces an instant demo match with an
-  auto-reply. True two-sided matching happens between two real signed-in accounts.
+### Option B — Download the code
+- The workspace also lets you **download the project** as an archive of all source files,
+  which you can then push into any repository (GitHub, GitLab, Bitbucket, self‑hosted Git, etc.).
 
-## Filters on the browse screen
-- Category (broom/cleaning, handyman, driver, babysitter, construction, cook, courier,
-  gardener, design, admin/social, writing, tutor, photo/video, web dev, customer service).
-- Distance (<2 km / <5 km / <10 km).
-- Pay bracket (in Rupiah).
-- Experience (baru / 1–2 / 3–5 / 5+ years).
-- Job type (Harian / Part-time / Full-time / Gig).
+## What you receive
+- The complete Expo (React Native) frontend and FastAPI backend source.
+- Configuration files needed to run it yourself.
+- Note: environment values (API keys, database URL, Emergent‑managed auth/session URLs)
+  are environment configuration. When you run the code elsewhere, you supply your own
+  values for these — the code reads them from environment variables.
 
-## Trust & safety
-- "Terverifikasi" badge and a "🆕 Baru di Kerjo" badge for accounts with no history.
-- Star rating + number of completed jobs shown on every card.
-- Full worker profile shows all past reviews written in casual Bahasa Indonesia.
+## Things to decide / be aware of
+1. **Where it goes** — a brand‑new empty repo (cleanest) vs. an existing repo.
+2. **Public vs. private** — for an app with user data and keys, a **private** repo is recommended.
+3. **Running it yourself** — once outside Emergent, you are responsible for hosting the
+   backend, the MongoDB database, and providing replacements for any Emergent‑managed
+   services (e.g., Google auth/session, object storage) if you host independently.
+4. **Cost** — exporting/pushing the code itself does not add app‑store fees. Any hosting
+   costs after you move it depend on where you choose to run it.
 
-## Sample data (only when the database is empty)
-- 10 worker profiles: Siti Aminah, Bambang Hartono, Dedi Kurniawan, Rina Wulandari,
-  Agus Setiawan, Wati Lestari, Joko Prasetyo, Yuni Astuti, Slamet Riyadi, Nur Hidayah.
-- 10 job postings: Keluarga Santoso, Toko Bangunan Jaya, Rumah Tangga Wijaya,
-  Warung Bu Yanti, Kos Melati, Keluarga Pratama, Ekspedisi Cepat, Perumahan Griya Asri,
-  Pak Hasan, Catering Sedap.
-- Existing data is never duplicated; seeding runs only on a genuinely empty database.
+## No build work required
+This request does not require any code changes to the app. It is done through the
+workspace's GitHub / download actions. If you hit an issue connecting GitHub or exporting,
+contact **support@emergent.sh** (include your job ID from the info (i) panel).
 
-## Design
-- Indonesian red (#E62429) + white, warm and energetic, large friendly type, prominent
-  trust badges, recognizable per-category icons, smooth swipe + match animations.
-- Bottom tabs: Cari (swipe) · Chat · Pasang (post a job) · Profil.
-
-## Trying it on two devices
-1. Device A signs in (account 1) and creates a worker profile.
-2. Device B signs in (account 2) and posts a job in that same category.
-3. A swipes right on B's job; B swipes right on A's profile → both get the match and can
-   chat live from their own device.
-
-## Going live
-- The preview link already opens across devices/browsers.
-- For a permanent public URL and app-store builds: Publish (top-right) → Deploy → then
-  generate iOS and Android builds. Some native features (notifications, audio, camera)
-  only work on a real-device build.
-
-## Assumptions
-- Login stays Google-based (already gives one persistent account per person across devices);
-  no separate email/password login is added since the two-device requirement is already met.
-- Sample workers/jobs remain demo entries that instant-match for solo exploration; real
-  two-sided matching is reserved for interactions between two real signed-in accounts.
+## Assumption
+Assuming you want the standard route: push the existing codebase to a new **private**
+GitHub repository that you own. If instead you want a download archive or a specific
+existing repo, say so.
