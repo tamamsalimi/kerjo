@@ -1,0 +1,61 @@
+{
+  "summary": "Kerjo v2 regression (real two-sided matching): 25/25 pytest cases pass and every critical web UI flow works. Backend covers auth (solo + fresh A/B pair created in mongo), seed count assertions (10 workers + 10 jobs with owner_user_id=null), browse endpoints (own profile/job excluded, wp_* real profiles included), filters (category/pay_bracket/experience), fresh two-sided real match (A right-swipes B's real job -> matched:false; B right-swipes wp_user_A -> matched:true) with per-viewer display, cross-account chat (B sends -> A reads and vice-versa), 'system' greeting present on real match, NO bot auto-reply on real match, employer review attaches to wp_<worker_user_id> and is visible on GET /api/workers/{wp_id}, solo/bot match on seed job + seed worker with bot greeting + auto-reply, job/profile CRUD. Frontend web (mobile viewport 390x844, testtoken_kerjo_123 seeded via localStorage kerjo_session_token): login bypass works, onboarding auto-skipped (has_profile=true after fixture), swipe deck renders both Cari Kerja (jobs) and Merekrut (workers), like-button triggers 'It's a Match!' overlay (match-overlay + Kirim Pesan + Lanjut Swipe), chat screen loads, chat-input+chat-send persists message ('TEST_ui_msg' verified back in DOM), Selesai (mark-done-button) opens review-sheet with star-1..5 + review-comment + submit-review, matches list at /matches shows the three test matches with last message + 'Selesai' status, /post form exposes input-business/title/pay/description + submit-job, /worker/wk_1 renders trust stats + reviews. No red screen. Deprecated packages detected: none (no expo-av, expo-barcode-scanner, expo-background-fetch usage). RN console noise still present (non-blocking): 'shadow* deprecated (use boxShadow)' and Animated 'useNativeDriver is not supported' on web.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Bottom tabs (Cari / Chat / Pasang / Profil)",
+        "issues": [
+          "Tab bar items still lack testID props, so automation navigates via direct URLs. Not blocking for users but hurts test reliability. Same finding as iteration_1."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "swipe-deck / global card styles",
+        "issue": "Console warning still fires repeatedly: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' Migrate shadowColor/shadowOffset/shadowOpacity/shadowRadius to boxShadow (or Platform-gate) to stay forward-compatible on web / RN 0.76+. Reference: /app/frontend/src/components/cards.tsx and /app/frontend/src/components/swipe-deck.tsx."
+      },
+      {
+        "component": "Animated (RN web)",
+        "issue": "New warning on web preview: 'Animated: useNativeDriver is not supported because the native animated module is missing. Falling back to JS-based animation.' Non-blocking on web; on native builds this is fine because native driver is available. If desired, pass useNativeDriver:false explicitly on web via Platform.OS === 'web' to silence."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Add testID props to Tabs bottom-nav buttons so Playwright can navigate via taps instead of URLs.",
+    "OPTIONAL: Replace deprecated `shadow*` style props with `boxShadow` (or Platform.select) in card / deck / overlay styles to remove console noise.",
+    "OPTIONAL: On web, opt Animated flows out of useNativeDriver explicitly (Platform.OS === 'web' ? false : true).",
+    "NOTE: server.py still uses deprecated FastAPI @app.on_event('startup')/'shutdown'; migrate to the lifespan context manager. Not user-visible.",
+    "NOTE: /app/backend/tests/backend_test.py should be run with `pytest -o addopts=\"\"` because pytest-xdist LoadScope splits the swipe/chat state across workers (`S.b_job_id`, `S.real_match_id` are cross-class module state)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 634 lines (still under 700 threshold). If it grows further, split into routers/auth/browse/matches/profile.",
+    "server.py uses deprecated FastAPI @app.on_event(...) — migrate to lifespan().",
+    "CORS allow_origins=['*'] with allow_credentials=True is ignored by browsers; if credentialed requests are ever added, restrict to EXPO_PUBLIC_BACKEND_URL host.",
+    "list_jobs / list_workers use .to_list(2000) — fine now, but paginate before scale.",
+    "profile_to_card computes distance_km deterministically from md5(user_id) — cosmetic, but note it doesn't reflect real geo.",
+    "matches.reviewed_by is only appended for real matches; display_for exposes 'reviewed' as (uid in reviewed_by) which is per-viewer — correct.",
+    "No index on db.swipes for (swiper_user_id, target_type, target_id); consider adding a compound unique index (also covers the upsert)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (rewritten for real two-sided matching, 25 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (25/25)",
+    "frontend": "100% of tested flows (login-with-token, home swipe deck in Cari + Merekrut mode, like-button match overlay, Kirim Pesan -> chat, chat send persists, mark-done -> review sheet -> submit, /matches list with 3 rows, /post form, /worker/{id} profile with reviews)."
+  },
+  "seed_data_creation": "Fresh two-sided pair created in mongo by the pytest autouse fixture: user_At_<rand>+tokAt_<rand> and user_Bt_<rand>+tokBt_<rand> with 1-day sessions; A upserts a TEST_ Tukang profile; B posts a TEST_ Tukang job; a real match is formed and reviewed. Solo bot matches also created against a seed job and a seed worker via testtoken_kerjo_123. Fixture teardown deletes the fresh users, sessions, profile, job, swipes and match. Existing seed data (10 workers + 10 jobs owner=None) and the previously-seeded testtoken_kerjo_123 / tokA / tokB accounts are preserved untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend suite is at /app/backend/tests/backend_test.py — always run with `pytest -o addopts=\"\"` (xdist LoadScope will otherwise split TestSetupB/TestRealMatch/TestBotMatch across workers and lose the shared class-attribute state on S). Fresh two-sided pair users_At/Bt are created and cleaned up per session; do NOT reuse tokA/tokB from test_credentials.md because they have already been consumed (they now have a persistent match). Web UI testIDs available (unchanged from iteration_1): home-screen, mode-work, mode-hire, filter-button, cat-{name}, cat-semua, swipe-card-top, pass-button, like-button, card-info-button, match-overlay, match-message-button, match-keep-button, chat-screen, chat-back, mark-done-button, chat-input, chat-send, review-sheet, sheet-backdrop, sheet-close, star-1..star-5, review-comment, submit-review, post-screen, input-business, input-title, input-pay, input-description, submit-job, matches-screen, match-row-{match_id}. Bottom tab bar STILL lacks testIDs — use URLs /, /matches, /post, /profile, /chat/{id}, /worker/{id}. To seed a token in the browser: `page.goto(BASE)` -> `localStorage.setItem('kerjo_session_token', JSON.stringify('<token>'))` -> `page.reload()`. IMPORTANT: navigate FIRST, then set localStorage, then reload — setting the key from a blank about:blank origin will not persist for the target origin.",
+  "rca_of_issue": "N/A — no bugs identified this iteration. The new real two-sided match logic was verified end-to-end from both accounts: A likes B's job -> matched:false (as designed, waits for reciprocal); B likes wp_user_A -> matched:true and both /api/matches return the same match with per-viewer titles (A sees job title/business, B sees 'TEST_Worker At' / 'Pelamar • Tukang'). System greeting posted by server with sender='system', and messages sent by B are read by A with sender=user_B and vice versa. No 'bot' auto-reply is generated for real matches (verified by inspecting sender list after B's send)."
+}

@@ -31,6 +31,11 @@ distance, pay, experience, category, job type. Warm Indonesian red/white design.
 - Onboarding worker profile + Post a Job form.
 
 ## Implemented (2026-06)
+- [x] **Real two-sided matching (v2, DB-backed, multi-device)**: swipes/matches/messages persist in
+      MongoDB; a match forms when a worker likes an employer's job AND the employer likes that worker's
+      profile (either order). Both accounts see the same match and share one chat (verified across two
+      accounts, 25/25 backend tests). Seed/bot entities still instant-match for solo demo.
+- [x] Seed only-when-empty: 10 workers + 10 jobs (+~22 reviews).
 - [x] Google login landing screen + auth context (mobile + web).
 - [x] Onboarding worker profile (create/edit, skippable).
 - [x] Swipe home: mode toggle, category chip row, filter bottom sheet, job & worker cards,

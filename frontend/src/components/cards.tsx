@@ -75,8 +75,12 @@ export function WorkerCard({ item, onOpenDetail }: { item: any; onOpenDetail: ()
         )}
 
         <View style={styles.pillRow}>
-          <Pill icon="map-marker" text={`${item.distance_km} km`} />
-          <Pill icon="cash" text={formatPay(item.pay_amount, item.pay_unit)} />
+          {item.distance_km > 0 ? <Pill icon="map-marker" text={`${item.distance_km} km`} /> : null}
+          {item.pay_display ? (
+            <Pill icon="cash" text={item.pay_display} />
+          ) : item.pay_amount ? (
+            <Pill icon="cash" text={formatPay(item.pay_amount, item.pay_unit)} />
+          ) : null}
           <Pill icon="briefcase-outline" text={item.experience_label} />
         </View>
       </View>

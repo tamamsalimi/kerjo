@@ -66,7 +66,9 @@ export default function WorkerProfile() {
 
           <View style={styles.payCard}>
             <Text style={styles.payLabel}>Tarif</Text>
-            <Text style={styles.payValue}>{formatPay(w.pay_amount, w.pay_unit)}</Text>
+            <Text style={styles.payValue}>
+              {w.pay_display ? w.pay_display : w.pay_amount ? formatPay(w.pay_amount, w.pay_unit) : "Bisa dinegosiasi"}
+            </Text>
             <Text style={styles.expLabel}>{w.experience_label} pengalaman</Text>
           </View>
 

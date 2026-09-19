@@ -16,7 +16,11 @@ export default function Matches() {
   const styles = useStyles();
   const router = useRouter();
 
-  const { data, isLoading, refetch } = useQuery({ queryKey: ["matches"], queryFn: fetchMatches });
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["matches"],
+    queryFn: fetchMatches,
+    refetchInterval: 5000,
+  });
 
   useFocusEffect(
     useCallback(() => {

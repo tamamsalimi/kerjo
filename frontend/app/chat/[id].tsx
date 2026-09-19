@@ -7,6 +7,7 @@ import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BottomSheet } from "@/src/components/bottom-sheet";
+import { useAuth } from "@/src/auth-context";
 import { Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { categoryIcon } from "@/src/constants";
@@ -22,6 +23,8 @@ export default function Chat() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const listRef = useRef<FlatList>(null);
+  const { user } = useAuth();
+  const myUserId = user?.user_id;
 
   const [text, setText] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -110,7 +113,14 @@ export default function Chat() {
           contentContainerStyle={styles.msgList}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
-            const mine = item.sender === "user";
+            if (item.sender === "system") {
+              return (
+                <View style={styles.systemRow}>
+                  <Text style={styles.systemText}>{item.text}</Text>
+                </View>
+              );
+            }
+            const mine = item.sender === myUserId || item.sender === "user";
             return (
               <View style={[styles.bubbleRow, mine ? styles.rowMine : styles.rowOther]}>
                 <View style={[styles.bubble, mine ? { backgroundColor: colors.brandPrimary } : { backgroundColor: colors.surfaceTertiary }]}>
@@ -204,6 +214,18 @@ const useStyles = makeStyles((colors) => ({
   },
   doneTagText: { fontFamily: fonts.medium, fontSize: 13, color: colors.onSuccess },
   msgList: { padding: spacing.lg, gap: spacing.sm },
+  systemRow: { alignItems: "center", paddingVertical: spacing.sm },
+  systemText: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    color: colors.muted,
+    textAlign: "center",
+    backgroundColor: colors.surfaceTertiary,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    overflow: "hidden",
+  },
   bubbleRow: { flexDirection: "row" },
   rowMine: { justifyContent: "flex-end" },
   rowOther: { justifyContent: "flex-start" },
