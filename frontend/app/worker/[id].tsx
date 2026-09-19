@@ -5,8 +5,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon, RatingStars, TrustBadge } from "@/src/components/ui";
-import { categoryIcon, formatPay } from "@/src/constants";
+import { Icon, CategoryAvatar, RatingStars, TrustBadge } from "@/src/components/ui";
+import { categoryColor, categoryIcon, formatPay } from "@/src/constants";
 import { fetchWorker } from "@/src/api";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -36,14 +36,20 @@ export default function WorkerProfile() {
       </Pressable>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}>
-        <View style={styles.banner}>
-          <Image source={{ uri: w.avatar }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <View style={[styles.banner, { backgroundColor: categoryColor(w.category) }]}>
+          {w.avatar ? (
+            <Image source={{ uri: w.avatar }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          ) : (
+            <View style={styles.bannerCenter}>
+              <Icon name={categoryIcon(w.category)} size={72} color="rgba(255,255,255,0.9)" />
+            </View>
+          )}
           <LinearGradient colors={["rgba(0,0,0,0.1)", "rgba(28,28,28,0.75)"]} style={StyleSheet.absoluteFill} />
         </View>
 
         <View style={styles.body}>
           <View style={styles.headRow}>
-            <Image source={{ uri: w.avatar }} style={styles.avatar} contentFit="cover" />
+            <CategoryAvatar category={w.category} photo={w.avatar} size={96} style={styles.avatar} />
             <View style={styles.catBubble}>
               <Icon name={categoryIcon(w.category)} size={22} color={colors.onBrandTertiary} />
             </View>
@@ -124,6 +130,7 @@ const useStyles = makeStyles((colors) => ({
     justifyContent: "center",
   },
   banner: { height: 220, backgroundColor: "#222" },
+  bannerCenter: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   body: { paddingHorizontal: spacing.lg, marginTop: -48 },
   headRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   avatar: { width: 96, height: 96, borderRadius: radius.pill, borderWidth: 4, borderColor: colors.surface },

@@ -1,15 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth-context";
-import { Chip, Icon, PrimaryButton } from "@/src/components/ui";
+import { CategoryAvatar, Chip, Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { CATEGORIES, EXPERIENCE_LABELS, categoryIcon } from "@/src/constants";
-import { getProfile, saveProfile } from "@/src/api";
+import { getProfile, saveProfile, uploadPhoto } from "@/src/api";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function Onboarding() {
@@ -28,7 +29,10 @@ export default function Onboarding() {
   const [experience, setExperience] = useState(EXPERIENCE_LABELS[1]);
   const [availability, setAvailability] = useState("");
   const [rate, setRate] = useState("");
+  const [phone, setPhone] = useState("");
   const [bio, setBio] = useState("");
+  const [photoUrl, setPhotoUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (existing) {
@@ -37,10 +41,52 @@ export default function Onboarding() {
       setExperience(existing.experience_label ?? EXPERIENCE_LABELS[1]);
       setAvailability(existing.availability ?? "");
       setRate(existing.rate ?? "");
+      setPhone(existing.phone ?? "");
       setBio(existing.bio ?? "");
+      setPhotoUrl(existing.photo_url ?? "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing]);
+
+  async function pickPhoto() {
+    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
+    let status = perm.status;
+    if (status !== "granted") {
+      if (!perm.canAskAgain) {
+        toast("Izinkan akses foto di Pengaturan", "info");
+        Linking.openSettings();
+        return;
+      }
+      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      status = req.status;
+      if (status !== "granted") {
+        if (!req.canAskAgain) {
+          toast("Izinkan akses foto di Pengaturan", "info");
+          Linking.openSettings();
+        } else {
+          toast("Akses foto dibutuhkan untuk unggah", "info");
+        }
+        return;
+      }
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.6,
+    });
+    if (res.canceled) return;
+    try {
+      setUploading(true);
+      const url = await uploadPhoto(res.assets[0].uri);
+      setPhotoUrl(url);
+      toast("Foto terunggah 📸", "success");
+    } catch {
+      toast("Gagal mengunggah foto", "error");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   function done() {
     refreshUser();
@@ -69,7 +115,9 @@ export default function Onboarding() {
       experience_label: experience,
       availability: availability.trim(),
       rate: rate.trim(),
+      phone: phone.trim(),
       bio: bio.trim(),
+      photo_url: photoUrl || null,
     });
   }
 
@@ -101,6 +149,27 @@ export default function Onboarding() {
         bottomOffset={20}
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.photoRow}>
+          <Pressable onPress={pickPhoto} testID="upload-photo-avatar">
+            <CategoryAvatar category={category} photo={photoUrl} size={84} />
+            <View style={styles.photoBadge}>
+              <Icon name="camera" size={16} color="#FFFFFF" />
+            </View>
+          </Pressable>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.label}>Foto Profil (opsional)</Text>
+            <PrimaryButton
+              label={uploading ? "Mengunggah…" : photoUrl ? "Ganti Foto" : "Unggah Foto"}
+              variant="outline"
+              icon="image-plus"
+              loading={uploading}
+              onPress={pickPhoto}
+              testID="upload-photo"
+              style={{ height: 44 }}
+            />
+          </View>
+        </View>
+
         <Field label="Nama">
           <TextInput
             style={styles.input}
@@ -147,6 +216,18 @@ export default function Onboarding() {
             placeholder="cth. Rp120.000/hari"
             placeholderTextColor={colors.muted}
             testID="ob-rate"
+          />
+        </Field>
+
+        <Field label="Nomor Telepon (opsional)">
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="cth. 0812xxxxxxx"
+            keyboardType="phone-pad"
+            placeholderTextColor={colors.muted}
+            testID="ob-phone"
           />
         </Field>
 
@@ -202,6 +283,12 @@ const useStyles = makeStyles((colors) => ({
   title: { fontFamily: fonts.medium, fontSize: 26, color: colors.onSurface, marginTop: spacing.lg },
   subtitle: { fontFamily: fonts.regular, fontSize: 14, color: colors.muted, marginTop: 4, marginBottom: spacing.md, lineHeight: 21 },
   form: { paddingTop: spacing.sm, paddingBottom: spacing["2xl"] },
+  photoRow: { flexDirection: "row", alignItems: "center", gap: spacing.lg, marginBottom: spacing.lg },
+  photoBadge: {
+    position: "absolute", right: -2, bottom: -2, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: colors.surface,
+  },
   label: { fontFamily: fonts.medium, fontSize: 14, color: colors.onSurface, marginBottom: spacing.sm },
   input: {
     backgroundColor: colors.surfaceTertiary,

@@ -49,6 +49,12 @@
           "locationWhenInUsePermission": "Tampilkan kerja dan pekerja terdekat dari lokasimu"
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Unggah foto profil dari galerimu"
+        }
+      ],
       "@react-native-vector-icons/material-design-icons"
     ],
     "experiments": {

@@ -1,12 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/auth-context";
-import { Icon, PrimaryButton } from "@/src/components/ui";
+import { CategoryAvatar, Icon, PrimaryButton } from "@/src/components/ui";
 import { categoryIcon } from "@/src/constants";
 import { getProfile } from "@/src/api";
 import { usesNativeTabs } from "@/src/navigation";
@@ -36,13 +35,7 @@ export default function Profile() {
         contentContainerStyle={{ paddingBottom: bottomChrome + spacing.xl }}
       >
         <View style={styles.head}>
-          {user?.picture ? (
-            <Image source={{ uri: user.picture }} style={styles.avatar} contentFit="cover" />
-          ) : (
-            <View style={[styles.avatar, styles.avatarFallback]}>
-              <Icon name="account" size={44} color={colors.onBrandTertiary} />
-            </View>
-          )}
+          <CategoryAvatar category={profile?.category} photo={profile?.photo_url} size={96} />
           <Text style={styles.name}>{user?.name}</Text>
           <Text style={styles.email}>{user?.email}</Text>
           <View style={[styles.verifyPill, { backgroundColor: colors.brandTertiary }]}>

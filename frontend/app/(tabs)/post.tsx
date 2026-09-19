@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { ScrollView, Text, TextInput, View } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Chip, PrimaryButton } from "@/src/components/ui";
+import { Chip, Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { CATEGORIES, EXPERIENCE_LABELS, JOB_TYPES, categoryIcon } from "@/src/constants";
 import { createJob } from "@/src/api";
@@ -28,6 +28,8 @@ export default function PostJob() {
   const [jobType, setJobType] = useState(JOB_TYPES[0]);
   const [experience, setExperience] = useState(EXPERIENCE_LABELS[0]);
   const [description, setDescription] = useState("");
+  const [phone, setPhone] = useState("");
+  const [questions, setQuestions] = useState<string[]>([""]);
 
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
@@ -40,6 +42,8 @@ export default function PostJob() {
       setTitle("");
       setPayAmount("");
       setDescription("");
+      setPhone("");
+      setQuestions([""]);
     },
     onError: () => toast("Gagal memasang lowongan", "error"),
   });
@@ -59,6 +63,8 @@ export default function PostJob() {
       job_type: jobType,
       min_experience_label: experience,
       description: description.trim(),
+      phone: phone.trim(),
+      screening_questions: questions.map((q) => q.trim()).filter(Boolean),
     });
   }
 
@@ -149,6 +155,53 @@ export default function PostJob() {
             testID="input-description"
           />
         </Field>
+
+        <Field label="Nomor Telepon (untuk panggilan)">
+          <TextInput
+            style={styles.input}
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="cth. 0812xxxxxxx"
+            keyboardType="phone-pad"
+            placeholderTextColor={colors.muted}
+            testID="input-phone"
+          />
+        </Field>
+
+        <Field label="Pertanyaan Screening (opsional)">
+          <Text style={styles.helper}>Pelamar akan menjawab ini saat melamar. Maks 3.</Text>
+          {questions.map((q, i) => (
+            <View key={i} style={styles.qRow}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={q}
+                onChangeText={(t) => setQuestions((prev) => prev.map((x, idx) => (idx === i ? t : x)))}
+                placeholder={`Pertanyaan ${i + 1}`}
+                placeholderTextColor={colors.muted}
+                testID={`input-question-${i}`}
+              />
+              {questions.length > 1 ? (
+                <Pressable
+                  style={styles.qRemove}
+                  onPress={() => setQuestions((prev) => prev.filter((_, idx) => idx !== i))}
+                  testID={`remove-question-${i}`}
+                >
+                  <Icon name="close" size={20} color={colors.error} />
+                </Pressable>
+              ) : null}
+            </View>
+          ))}
+          {questions.length < 3 ? (
+            <Pressable
+              style={styles.addQ}
+              onPress={() => setQuestions((prev) => [...prev, ""])}
+              testID="add-question"
+            >
+              <Icon name="plus" size={18} color={colors.brandPrimary} />
+              <Text style={styles.addQText}>Tambah pertanyaan</Text>
+            </Pressable>
+          ) : null}
+        </Field>
       </KeyboardAwareScrollView>
 
       <KeyboardStickyView offset={{ closed: 0, opened: spacing.md }}>
@@ -195,6 +248,14 @@ const useStyles = makeStyles((colors) => ({
   rowFields: { flexDirection: "row", gap: spacing.md },
   chipScroll: { gap: spacing.sm, paddingBottom: spacing.md },
   wrapChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  helper: { fontFamily: fonts.regular, fontSize: 13, color: colors.muted, marginBottom: spacing.sm },
+  qRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.sm },
+  qRemove: {
+    width: 44, height: 44, borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center",
+  },
+  addQ: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: spacing.xs },
+  addQText: { fontFamily: fonts.medium, fontSize: 14, color: colors.brandPrimary },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,

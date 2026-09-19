@@ -3,7 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { Icon, RatingStars, TrustBadge } from "@/src/components/ui";
-import { categoryIcon, formatPay } from "@/src/constants";
+import { categoryColor, categoryIcon, formatPay } from "@/src/constants";
 import { fonts, radius, spacing, useTheme } from "@/src/theme";
 
 function InfoButton({ onPress }: { onPress: () => void }) {
@@ -20,31 +20,27 @@ function InfoButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-function Pill({ icon, text, dark }: { icon: string; text: string; dark?: boolean }) {
-  const { colors } = useTheme();
-  const bg = dark ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.22)";
+function Pill({ icon, text }: { icon: string; text: string }) {
   return (
-    <View style={[styles.pill, { backgroundColor: bg }]}>
-      <Icon name={icon} size={14} color={colors.onBrandPrimary} />
+    <View style={[styles.pill, { backgroundColor: "rgba(0,0,0,0.28)" }]}>
+      <Icon name={icon} size={14} color="#FFFFFF" />
       <Text style={styles.pillText}>{text}</Text>
     </View>
   );
 }
 
+const SCRIM = ["rgba(0,0,0,0)", "rgba(0,0,0,0.25)", "rgba(0,0,0,0.82)"] as const;
+
 export function WorkerCard({ item, onOpenDetail }: { item: any; onOpenDetail: () => void }) {
+  const hasPhoto = !!item.avatar;
+  const color = categoryColor(item.category);
   return (
-    <View style={styles.card}>
-      <Image
-        source={{ uri: item.avatar }}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-        transition={200}
-      />
-      <LinearGradient
-        colors={["rgba(0,0,0,0)", "rgba(28,28,28,0.35)", "rgba(28,28,28,0.92)"]}
-        locations={[0.35, 0.6, 1]}
-        style={StyleSheet.absoluteFill}
-      />
+    <View style={[styles.card, { backgroundColor: color }]}>
+      {hasPhoto ? (
+        <Image source={{ uri: item.avatar }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+      ) : null}
+      <LinearGradient colors={SCRIM} locations={[0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
+
       <View style={styles.topRow}>
         <View style={styles.catBubble}>
           <Icon name={categoryIcon(item.category)} size={20} color="#FFFFFF" />
@@ -52,25 +48,27 @@ export function WorkerCard({ item, onOpenDetail }: { item: any; onOpenDetail: ()
         <InfoButton onPress={onOpenDetail} />
       </View>
 
+      {!hasPhoto ? (
+        <View style={styles.center}>
+          <View style={styles.bigIconBubble}>
+            <Icon name={categoryIcon(item.category)} size={68} color="#FFFFFF" />
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.content}>
         <View style={styles.badgeRow}>
           <TrustBadge isNew={item.is_new} verified={item.verified} />
         </View>
-        <Text style={styles.name} numberOfLines={1}>
-          {item.name}
-        </Text>
-        <Text style={styles.role} numberOfLines={1}>
-          {item.role}
-        </Text>
+        <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.role} numberOfLines={1}>{item.role}</Text>
 
         {item.is_new ? (
           <Text style={styles.newHint}>Pekerja baru • beri kesempatan pertama 🙌</Text>
         ) : (
           <View style={styles.ratingRow}>
             <RatingStars rating={item.rating} size={16} />
-            <Text style={styles.ratingText}>
-              {item.rating.toFixed(1)} • {item.jobs_completed} kerja
-            </Text>
+            <Text style={styles.ratingText}>{Number(item.rating).toFixed(1)} • {item.jobs_completed} kerja</Text>
           </View>
         )}
 
@@ -89,42 +87,34 @@ export function WorkerCard({ item, onOpenDetail }: { item: any; onOpenDetail: ()
 }
 
 export function JobCard({ item, onOpenDetail }: { item: any; onOpenDetail: () => void }) {
-  const { colors } = useTheme();
+  const color = categoryColor(item.category);
   return (
-    <View style={styles.card}>
-      <LinearGradient
-        colors={[colors.brandPrimary, colors.onBrandTertiary]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
+    <View style={[styles.card, { backgroundColor: color }]}>
+      <LinearGradient colors={SCRIM} locations={[0.35, 0.6, 1]} style={StyleSheet.absoluteFill} />
+
       <View style={styles.topRow}>
-        <View style={[styles.typeTag, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
+        <View style={[styles.typeTag, { backgroundColor: "rgba(0,0,0,0.28)" }]}>
           <Text style={styles.typeTagText}>{item.job_type}</Text>
         </View>
         <InfoButton onPress={onOpenDetail} />
       </View>
 
-      <View style={styles.jobCenter}>
+      <View style={styles.center}>
         <View style={styles.bigIconBubble}>
-          <Icon name={categoryIcon(item.category)} size={64} color="#FFFFFF" />
+          <Icon name={categoryIcon(item.category)} size={68} color="#FFFFFF" />
         </View>
         <Text style={styles.jobCategory}>{item.category}</Text>
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.business} numberOfLines={1}>
-          {item.business}
-        </Text>
-        <Text style={styles.name} numberOfLines={2}>
-          {item.title}
-        </Text>
+        <Text style={styles.business} numberOfLines={1}>{item.business}</Text>
+        <Text style={styles.name} numberOfLines={2}>{item.title}</Text>
         <View style={styles.payHero}>
           <Text style={styles.payHeroText}>{formatPay(item.pay_amount, item.pay_unit)}</Text>
         </View>
         <View style={styles.pillRow}>
-          <Pill icon="map-marker" text={`${item.distance_km} km`} dark />
-          <Pill icon="star-outline" text={item.min_experience_label} dark />
+          <Pill icon="map-marker" text={`${item.distance_km} km`} />
+          <Pill icon="star-outline" text={item.min_experience_label} />
         </View>
       </View>
     </View>
@@ -132,44 +122,23 @@ export function JobCard({ item, onOpenDetail }: { item: any; onOpenDetail: () =>
 }
 
 const styles = StyleSheet.create({
-  card: {
-    flex: 1,
-    borderRadius: radius.lg,
-    overflow: "hidden",
-    backgroundColor: "#222",
-  },
+  card: { flex: 1, borderRadius: radius.lg, overflow: "hidden" },
   topRow: {
-    position: "absolute",
-    top: spacing.lg,
-    left: spacing.lg,
-    right: spacing.lg,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    zIndex: 2,
+    position: "absolute", top: spacing.lg, left: spacing.lg, right: spacing.lg,
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", zIndex: 2,
   },
   catBubble: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 42, height: 42, borderRadius: radius.pill, backgroundColor: "rgba(0,0,0,0.3)",
+    alignItems: "center", justifyContent: "center",
   },
-  infoBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
+  infoBtn: { width: 42, height: 42, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
+  bigIconBubble: {
+    width: 120, height: 120, borderRadius: radius.pill, backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center", justifyContent: "center",
   },
-  content: {
-    position: "absolute",
-    left: spacing.xl,
-    right: spacing.xl,
-    bottom: spacing.xl,
-    gap: spacing.xs,
-  },
+  jobCategory: { fontFamily: fonts.medium, fontSize: 16, color: "rgba(255,255,255,0.92)" },
+  content: { position: "absolute", left: spacing.xl, right: spacing.xl, bottom: spacing.xl, gap: spacing.xs },
   badgeRow: { flexDirection: "row", marginBottom: spacing.xs },
   name: { fontFamily: fonts.medium, fontSize: 28, color: "#FFFFFF" },
   role: { fontFamily: fonts.regular, fontSize: 16, color: "rgba(255,255,255,0.9)" },
@@ -178,25 +147,8 @@ const styles = StyleSheet.create({
   ratingRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: 2 },
   ratingText: { fontFamily: fonts.medium, fontSize: 14, color: "#FFFFFF" },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.sm },
-  pill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
-  },
+  pill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   pillText: { fontFamily: fonts.medium, fontSize: 13, color: "#FFFFFF" },
-  jobCenter: { flex: 1, alignItems: "center", justifyContent: "center", gap: spacing.md },
-  bigIconBubble: {
-    width: 120,
-    height: 120,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.16)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  jobCategory: { fontFamily: fonts.medium, fontSize: 16, color: "rgba(255,255,255,0.9)" },
   typeTag: { paddingHorizontal: spacing.md, paddingVertical: 6, borderRadius: radius.pill },
   typeTagText: { fontFamily: fonts.medium, fontSize: 13, color: "#FFFFFF" },
   payHero: { marginTop: spacing.xs },

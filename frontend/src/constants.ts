@@ -42,6 +42,30 @@ export function categoryIcon(cat?: string): string {
   return CATEGORY_ICON[cat] || "briefcase";
 }
 
+// Distinct badge background color per category (identity colors, kept constant).
+export const CATEGORY_COLOR: Record<string, string> = {
+  "Bersih-bersih": "#0EA5A4",
+  Tukang: "#D97706",
+  Supir: "#2563EB",
+  "Pengasuh Anak": "#DB2777",
+  "Kuli Bangunan": "#EA580C",
+  Masak: "#DC2626",
+  Kurir: "#16A34A",
+  Kebun: "#059669",
+  Desain: "#7C3AED",
+  "Admin/Sosmed": "#4F46E5",
+  Menulis: "#0D9488",
+  Tutor: "#0891B2",
+  "Fotografi/Video": "#C026D3",
+  "Web Dev": "#0284C7",
+  CS: "#E11D48",
+};
+
+export function categoryColor(cat?: string): string {
+  if (!cat) return "#E62429";
+  return CATEGORY_COLOR[cat] || "#E62429";
+}
+
 export const JOB_TYPES = ["Harian", "Part-time", "Full-time", "Gig"];
 
 export const EXPERIENCE_LABELS = [

@@ -1,14 +1,23 @@
+import { useQuery } from "@tanstack/react-query";
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 import { Tabs } from "expo-router";
 import * as Haptics from "expo-haptics";
 import { Platform } from "react-native";
 
 import { Icon } from "@/src/components/ui";
+import { fetchUnreadCount } from "@/src/api";
 import { usesNativeTabs } from "@/src/navigation";
 import { fonts, useTheme } from "@/src/theme";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
+
+  const { data: unread } = useQuery({
+    queryKey: ["unread-count"],
+    queryFn: fetchUnreadCount,
+    refetchInterval: 5000,
+  });
+  const count = unread?.count ?? 0;
 
   if (usesNativeTabs) {
     return (
@@ -20,6 +29,7 @@ export default function TabsLayout() {
         <NativeTabs.Trigger name="matches">
           <NativeTabs.Trigger.Icon sf="message.fill" />
           <NativeTabs.Trigger.Label>Chat</NativeTabs.Trigger.Label>
+          {count > 0 ? <NativeTabs.Trigger.Badge>{String(count)}</NativeTabs.Trigger.Badge> : null}
         </NativeTabs.Trigger>
         <NativeTabs.Trigger name="post">
           <NativeTabs.Trigger.Icon sf="plus.circle.fill" />
@@ -51,6 +61,7 @@ export default function TabsLayout() {
         },
         tabBarItemStyle: { alignSelf: "center" },
         tabBarLabelStyle: { fontFamily: fonts.medium, fontSize: 11 },
+        tabBarBadgeStyle: { backgroundColor: colors.brandPrimary, color: colors.onBrandPrimary, fontFamily: fonts.medium, fontSize: 10 },
       }}
     >
       <Tabs.Screen
@@ -59,7 +70,12 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="matches"
-        options={{ title: "Chat", tabBarButtonTestID: "tab-chat", tabBarIcon: ({ color }) => <Icon name="chat-processing" size={26} color={color} /> }}
+        options={{
+          title: "Chat",
+          tabBarButtonTestID: "tab-chat",
+          tabBarBadge: count > 0 ? count : undefined,
+          tabBarIcon: ({ color }) => <Icon name="chat-processing" size={26} color={color} />,
+        }}
       />
       <Tabs.Screen
         name="post"

@@ -410,3 +410,348 @@ class TestMatch404:
         r = requests.get(f"{BASE_URL}/api/matches/nope/messages",
                          headers=_h(SOLO_TOKEN), timeout=15)
         assert r.status_code == 404
+
+
+# ---------- No-face imagery + photo upload (NEW) ----------
+# 1x1 transparent PNG
+_TINY_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08"
+    b"\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\rIDATx\x9cc\xf8\xcf\xc0"
+    b"\x00\x00\x00\x03\x00\x01\x8d\x8c\x1c\x9c\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+class TestNoFaceImagery:
+    """All seed workers must have empty avatar (no pravatar / no photos)."""
+
+    def test_seed_workers_have_empty_avatar(self):
+        r = requests.get(f"{BASE_URL}/api/workers", headers=_h(SOLO_TOKEN), timeout=15)
+        assert r.status_code == 200
+        seed = [w for w in r.json() if w["id"].startswith("wk_")]
+        assert seed, "no seed workers in list_workers (maybe all swiped?)"
+        for w in seed:
+            assert w.get("avatar", "") == "", f"seed {w['id']} has non-empty avatar {w.get('avatar')!r}"
+
+    def test_seed_worker_wk_1_detail_no_avatar(self):
+        r = requests.get(f"{BASE_URL}/api/workers/wk_1", headers=_h(SOLO_TOKEN), timeout=15)
+        assert r.status_code == 200, r.text
+        assert r.json().get("avatar", "") == ""
+
+
+class TestPhotoUpload:
+    """Photo upload flow via Emergent Object Storage."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.uploaded_url = None
+        cls.uploaded_path = None
+
+    def test_upload_requires_auth(self):
+        r = requests.post(f"{BASE_URL}/api/upload",
+                          files={"file": ("t.png", _TINY_PNG, "image/png")}, timeout=30)
+        assert r.status_code in (401, 403), r.status_code
+
+    def test_upload_png_returns_path_and_url(self):
+        # Multipart -> DO NOT set json content-type header
+        r = requests.post(f"{BASE_URL}/api/upload",
+                          headers={"Authorization": f"Bearer {TOK_A}"},
+                          files={"file": ("test.png", _TINY_PNG, "image/png")},
+                          timeout=60)
+        if r.status_code != 200:
+            pytest.skip(f"object storage unavailable in this env: {r.status_code} {r.text[:200]}")
+        data = r.json()
+        assert "path" in data and "url" in data
+        assert data["path"].startswith("kerjo/uploads/")
+        assert data["url"].startswith("/api/files/")
+        TestPhotoUpload.uploaded_path = data["path"]
+        TestPhotoUpload.uploaded_url = data["url"]
+
+    def test_serve_file_public(self):
+        if not TestPhotoUpload.uploaded_path:
+            pytest.skip("upload skipped")
+        # public GET (no auth) via /api/files/{path}
+        r = requests.get(f"{BASE_URL}/api/files/{TestPhotoUpload.uploaded_path}",
+                         timeout=30)
+        assert r.status_code == 200, r.text[:200]
+        ctype = r.headers.get("Content-Type", "")
+        assert ctype.startswith("image/"), f"unexpected content-type: {ctype}"
+        assert len(r.content) > 0
+
+    def test_serve_missing_file_404(self):
+        r = requests.get(f"{BASE_URL}/api/files/kerjo/uploads/nonexistent/xxx.png",
+                         timeout=30)
+        assert r.status_code == 404
+
+    def test_profile_photo_url_persists_and_appears_on_worker_card(self):
+        if not TestPhotoUpload.uploaded_url:
+            pytest.skip("upload skipped")
+        # Save photo_url on A's profile
+        payload = {
+            "name": "TEST_Worker At", "category": "Tukang",
+            "experience_label": "1-2 tahun", "availability": "Harian",
+            "bio": "TEST_bio", "rate": "Rp 150rb/hari",
+            "photo_url": TestPhotoUpload.uploaded_url,
+        }
+        r = requests.post(f"{BASE_URL}/api/profile", headers=_h(TOK_A),
+                          json=payload, timeout=15)
+        assert r.status_code == 200
+        assert r.json().get("photo_url") == TestPhotoUpload.uploaded_url
+
+        # As tokB, GET /api/workers/wp_UID_A -> avatar equals uploaded url
+        g = requests.get(f"{BASE_URL}/api/workers/wp_{UID_A}",
+                         headers=_h(TOK_B), timeout=15)
+        assert g.status_code == 200, g.text
+        card = g.json()
+        assert card["id"] == f"wp_{UID_A}"
+        assert card.get("avatar") == TestPhotoUpload.uploaded_url
+
+    def test_profile_upsert_preserves_photo_when_null(self):
+        if not TestPhotoUpload.uploaded_url:
+            pytest.skip("upload skipped")
+        # Re-upsert WITHOUT photo_url — server should preserve existing
+        payload = {
+            "name": "TEST_Worker At", "category": "Tukang",
+            "experience_label": "1-2 tahun", "availability": "Harian",
+            "bio": "TEST_bio_2", "rate": "Rp 150rb/hari",
+        }
+        r = requests.post(f"{BASE_URL}/api/profile", headers=_h(TOK_A),
+                          json=payload, timeout=15)
+        assert r.status_code == 200
+        assert r.json().get("photo_url") == TestPhotoUpload.uploaded_url, \
+            "photo_url must be preserved when not provided in upsert"
+
+    def test_profile_with_no_photo_has_empty_avatar(self):
+        # SOLO tester's profile (upserted in TestProfile.test_get_and_upsert)
+        # has no photo_url. Its card via /api/workers/wp_user_testkerjo01
+        # (through server) should have avatar == "".
+        g = requests.get(f"{BASE_URL}/api/workers/wp_user_testkerjo01",
+                         headers=_h(TOK_A), timeout=15)
+        if g.status_code == 404:
+            pytest.skip("solo profile card not exposed")
+        assert g.status_code == 200, g.text
+        card = g.json()
+        assert card.get("avatar", "") == "", f"expected empty avatar, got {card.get('avatar')!r}"
+
+
+# ---------- NEW iteration_4 tests: undo/unread/applicants/online-phone/schedule/screening ----------
+
+class TestUndoSwipe:
+    """POST /api/swipe/undo removes the swipe so the card can reappear."""
+
+    def test_left_swipe_then_undo(self):
+        # Solo tester left-swipes an unswiped seed worker and then undoes it.
+        ws = requests.get(f"{BASE_URL}/api/workers", headers=_h(SOLO_TOKEN), timeout=15).json()
+        seed = [w for w in ws if w["id"].startswith("wk_")]
+        if not seed:
+            pytest.skip("no unswiped seed workers left")
+        wid = seed[0]["id"]
+        r = requests.post(f"{BASE_URL}/api/swipe", headers=_h(SOLO_TOKEN),
+                          json={"target_type": "worker", "target_id": wid,
+                                "direction": "left"}, timeout=15)
+        assert r.status_code == 200
+        # After left swipe, worker should no longer appear in listing
+        after = requests.get(f"{BASE_URL}/api/workers", headers=_h(SOLO_TOKEN), timeout=15).json()
+        assert wid not in {w["id"] for w in after}, "swiped worker still in list before undo"
+        # Undo
+        r = requests.post(f"{BASE_URL}/api/swipe/undo", headers=_h(SOLO_TOKEN),
+                          json={"target_type": "worker", "target_id": wid}, timeout=15)
+        assert r.status_code == 200 and r.json().get("ok") is True
+        # Now should reappear
+        again = requests.get(f"{BASE_URL}/api/workers", headers=_h(SOLO_TOKEN), timeout=15).json()
+        assert wid in {w["id"] for w in again}, "worker did not reappear after undo"
+
+
+class TestUnreadCount:
+    """/api/matches/unread-count, per-match 'unread', and mark-read behavior."""
+
+    def test_unread_flow_real_match(self):
+        mid = S.real_match_id
+        assert mid, "real_match_id required from TestRealMatch"
+        # Send fresh message from B to A
+        requests.post(f"{BASE_URL}/api/matches/{mid}/messages",
+                      headers=_h(TOK_B), json={"text": "TEST_unread_ping"}, timeout=15)
+        # A should see unread > 0 for this match
+        ml = requests.get(f"{BASE_URL}/api/matches", headers=_h(TOK_A), timeout=15).json()
+        my = next(m for m in ml if m["id"] == mid)
+        assert my.get("unread", 0) >= 1, f"expected unread>=1, got {my.get('unread')}"
+        # total unread endpoint reflects it
+        c = requests.get(f"{BASE_URL}/api/matches/unread-count",
+                         headers=_h(TOK_A), timeout=15).json()
+        assert isinstance(c.get("count"), int) and c["count"] >= 1
+        # mark read
+        r = requests.post(f"{BASE_URL}/api/matches/{mid}/read",
+                          headers=_h(TOK_A), timeout=15)
+        assert r.status_code == 200 and r.json().get("ok") is True
+        # unread should be 0 for this match now
+        ml2 = requests.get(f"{BASE_URL}/api/matches", headers=_h(TOK_A), timeout=15).json()
+        my2 = next(m for m in ml2 if m["id"] == mid)
+        assert my2.get("unread", 0) == 0, f"expected unread=0 after read, got {my2.get('unread')}"
+
+
+class TestGetMatchOnlinePhone:
+    """GET /api/matches/{id} returns 'online' and per-viewer 'phone'."""
+
+    def test_online_and_phone_fields_for_real_match(self):
+        mid = S.real_match_id
+        assert mid
+        # As A (worker) - phone should be job_phone (empty because B's TEST job didn't set)
+        ra = requests.get(f"{BASE_URL}/api/matches/{mid}", headers=_h(TOK_A), timeout=15)
+        assert ra.status_code == 200, ra.text
+        da = ra.json()
+        assert "online" in da and isinstance(da["online"], bool)
+        assert "phone" in da  # empty string ok
+        # As B (employer) - phone should be worker_phone
+        rb = requests.get(f"{BASE_URL}/api/matches/{mid}", headers=_h(TOK_B), timeout=15)
+        assert rb.status_code == 200
+        db_ = rb.json()
+        assert "online" in db_ and isinstance(db_["online"], bool)
+        assert "phone" in db_
+
+
+class TestJobWithPhoneAndScreening:
+    """Job create accepts phone + screening_questions; swipe accepts screening_answers."""
+
+    _job_id = None
+
+    def test_create_job_with_phone_and_screening(self):
+        payload = {
+            "business": "TEST_CV Screening", "title": "TEST_Kasir Screening",
+            "category": "Kasir", "pay_amount": 200000, "pay_unit": "/hari",
+            "distance_km": 3.0, "job_type": "Harian",
+            "min_experience_label": "Baru", "description": "TEST_desc_screen",
+            "phone": "08123456789",
+            "screening_questions": ["Berapa pengalaman?", "Bisa mulai kapan?"],
+        }
+        r = requests.post(f"{BASE_URL}/api/jobs", headers=_h(TOK_B),
+                          json=payload, timeout=15)
+        assert r.status_code == 200, r.text
+        job = r.json()
+        assert job.get("phone") == "08123456789"
+        assert job.get("screening_questions") == ["Berapa pengalaman?", "Bisa mulai kapan?"]
+        TestJobWithPhoneAndScreening._job_id = job["id"]
+
+    def test_swipe_with_screening_answers(self):
+        jid = TestJobWithPhoneAndScreening._job_id
+        assert jid
+        # Solo tester right-swipes with answers
+        r = requests.post(f"{BASE_URL}/api/swipe", headers=_h(SOLO_TOKEN),
+                          json={"target_type": "job", "target_id": jid,
+                                "direction": "right",
+                                "screening_answers": ["3 tahun", "Senin"]}, timeout=15)
+        assert r.status_code == 200
+
+
+class TestApplicants:
+    """GET /api/applicants returns workers who right-swiped my jobs with answers."""
+
+    def test_solo_applicant_visible_to_employer_B(self):
+        jid = TestJobWithPhoneAndScreening._job_id
+        assert jid
+        r = requests.get(f"{BASE_URL}/api/applicants", headers=_h(TOK_B), timeout=15)
+        assert r.status_code == 200, r.text
+        apps = r.json()
+        # solo tester's profile (user_testkerjo01) should be present
+        solo_apps = [a for a in apps if a.get("applied_job_id") == jid]
+        assert solo_apps, f"expected solo applicant for job {jid}, got {apps}"
+        a = solo_apps[0]
+        assert "screening_questions" in a and "screening_answers" in a
+        assert a["screening_answers"] == ["3 tahun", "Senin"]
+        assert a["applied_job_title"] == "TEST_Kasir Screening"
+        assert isinstance(a.get("matched"), bool)
+        # not matched yet (employer has not swiped)
+        assert a["matched"] is False and a["match_id"] is None
+
+    def test_employer_can_accept_applicant_creates_match(self):
+        jid = TestJobWithPhoneAndScreening._job_id
+        # Employer B right-swipes solo tester's profile card (wp_user_testkerjo01)
+        r = requests.post(f"{BASE_URL}/api/swipe", headers=_h(TOK_B),
+                          json={"target_type": "worker",
+                                "target_id": "wp_user_testkerjo01",
+                                "direction": "right"}, timeout=15)
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert data["matched"] is True and "match" in data
+        mid = data["match"]["id"]
+        # Now /api/applicants should show matched=true with match_id
+        apps = requests.get(f"{BASE_URL}/api/applicants",
+                            headers=_h(TOK_B), timeout=15).json()
+        rel = [a for a in apps if a.get("applied_job_id") == jid]
+        assert rel and rel[0]["matched"] is True and rel[0]["match_id"] == mid
+
+
+class TestSchedule:
+    """POST schedule inserts kind=schedule message; respond updates status + system msg."""
+
+    _sched_id = None
+
+    def test_create_schedule_message(self):
+        mid = S.real_match_id
+        assert mid
+        r = requests.post(f"{BASE_URL}/api/matches/{mid}/schedule",
+                          headers=_h(TOK_B),
+                          json={"kind": "Wawancara",
+                                "when": "2026-02-10T09:00:00Z",
+                                "note": "TEST_bawa CV"},
+                          timeout=15)
+        assert r.status_code == 200, r.text
+        msgs = r.json()
+        sched_msgs = [m for m in msgs if m.get("kind") == "schedule"]
+        assert sched_msgs, f"no schedule msg found in {msgs}"
+        sm = sched_msgs[-1]
+        assert sm["schedule"]["kind"] == "Wawancara"
+        assert sm["schedule"]["status"] == "pending"
+        assert sm["schedule"]["proposed_by"] == UID_B
+        TestSchedule._sched_id = sm["schedule"]["id"]
+
+    def test_respond_accept_updates_status_and_adds_system_msg(self):
+        mid = S.real_match_id
+        sid = TestSchedule._sched_id
+        assert sid
+        r = requests.post(f"{BASE_URL}/api/matches/{mid}/schedule/{sid}/respond",
+                          headers=_h(TOK_A), json={"accept": True}, timeout=15)
+        assert r.status_code == 200, r.text
+        msgs = r.json()
+        # find our schedule message
+        sm = next((m for m in msgs
+                   if m.get("kind") == "schedule"
+                   and m.get("schedule", {}).get("id") == sid), None)
+        assert sm and sm["schedule"]["status"] == "accepted"
+        # last message should be a system confirmation
+        sys_msgs = [m for m in msgs if m.get("sender") == "system"]
+        assert any("menerima" in (m.get("text") or "").lower() for m in sys_msgs)
+
+    def test_respond_decline_flow(self):
+        mid = S.real_match_id
+        # Create another schedule then decline it
+        r = requests.post(f"{BASE_URL}/api/matches/{mid}/schedule",
+                          headers=_h(TOK_A),
+                          json={"kind": "Hari Pertama",
+                                "when": "2026-02-15T08:00:00Z", "note": ""},
+                          timeout=15)
+        assert r.status_code == 200
+        msgs = r.json()
+        sid = [m for m in msgs if m.get("kind") == "schedule"][-1]["schedule"]["id"]
+        r2 = requests.post(f"{BASE_URL}/api/matches/{mid}/schedule/{sid}/respond",
+                           headers=_h(TOK_B), json={"accept": False}, timeout=15)
+        assert r2.status_code == 200
+        msgs2 = r2.json()
+        sm = next(m for m in msgs2
+                  if m.get("kind") == "schedule"
+                  and m.get("schedule", {}).get("id") == sid)
+        assert sm["schedule"]["status"] == "declined"
+        sys_msgs = [m for m in msgs2 if m.get("sender") == "system"]
+        assert any("menolak" in (m.get("text") or "").lower() for m in sys_msgs)
+
+
+class TestNoFaceInMatches:
+    """P0: GET /api/matches returns empty 'image' for all matches."""
+
+    def test_no_face_image_urls_in_matches(self):
+        for tok in [SOLO_TOKEN, TOK_A, TOK_B]:
+            r = requests.get(f"{BASE_URL}/api/matches", headers=_h(tok), timeout=15)
+            assert r.status_code == 200
+            for m in r.json():
+                img = m.get("image", "")
+                assert not any(h in img for h in ("pravatar", "randomuser", "unsplash")), \
+                    f"face image URL leaked into match for token={tok}: {img}"
+

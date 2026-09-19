@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, Header, HTTPException
+from fastapi import FastAPI, APIRouter, Header, HTTPException, UploadFile, File
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -11,6 +11,9 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 import httpx
+import requests
+from starlette.concurrency import run_in_threadpool
+from starlette.responses import Response
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -27,6 +30,38 @@ logger = logging.getLogger("kerjo")
 
 EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
 
+# ---- Object storage (managed) ----
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "kerjo"
+_storage_key = None
+
+
+def init_storage():
+    global _storage_key
+    if _storage_key:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(f"{STORAGE_URL}/objects/{path}",
+                        headers={"X-Storage-Key": key, "Content-Type": content_type}, data=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
 EXP_BUCKET = {"Tidak wajib": "any", "Baru": "baru", "1-2 tahun": "1-2", "3-5 tahun": "3-5", "5+ tahun": "5+"}
 JOB_EXP_BUCKET = {"Min. Tidak wajib": "any", "Min. Baru": "baru", "Min. 1 tahun": "1-2",
                   "Min. 2 tahun": "1-2", "Min. 3 tahun": "3-5", "Min. 5 tahun": "5+"}
@@ -40,6 +75,34 @@ def ensure_aware(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+FACE_HOSTS = ("pravatar", "randomuser.me", "unsplash")
+
+
+def clean_avatar(url: Optional[str]) -> str:
+    """Strip any legacy human-face image URLs so only real user uploads survive."""
+    if not url:
+        return ""
+    if any(h in url for h in FACE_HOSTS):
+        return ""
+    return url
+
+
+async def is_online(uid: str) -> bool:
+    u = await db.users.find_one({"user_id": uid}, {"_id": 0, "last_seen": 1})
+    ls = u.get("last_seen") if u else None
+    if not ls:
+        return False
+    return (now_utc() - ensure_aware(ls)).total_seconds() < 120
+
+
+async def unread_count(match: dict, uid: str) -> int:
+    last = (match.get("read_at") or {}).get(uid)
+    q = {"match_id": match["id"], "sender": {"$nin": [uid, "system"]}}
+    if last:
+        q["created_at"] = {"$gt": ensure_aware(last)}
+    return await db.messages.count_documents(q)
+
+
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
@@ -51,10 +114,26 @@ class SwipeRequest(BaseModel):
     target_type: str  # 'job' | 'worker'
     target_id: str
     direction: str  # 'right' | 'left'
+    screening_answers: Optional[list] = None
+
+
+class UndoSwipeRequest(BaseModel):
+    target_type: str
+    target_id: str
 
 
 class MessageRequest(BaseModel):
     text: str
+
+
+class ScheduleRequest(BaseModel):
+    kind: str  # 'Wawancara' | 'Tes/Asesmen' | 'Hari Pertama'
+    when: str  # ISO datetime string
+    note: str = ""
+
+
+class ScheduleRespondRequest(BaseModel):
+    accept: bool
 
 
 class ReviewRequest(BaseModel):
@@ -69,6 +148,8 @@ class ProfileRequest(BaseModel):
     availability: str = ""
     bio: str = ""
     rate: str = ""
+    phone: Optional[str] = None
+    photo_url: Optional[str] = None
 
 
 class JobRequest(BaseModel):
@@ -81,6 +162,8 @@ class JobRequest(BaseModel):
     job_type: str = "Harian"
     min_experience_label: str = "Tidak wajib"
     description: str = ""
+    phone: str = ""
+    screening_questions: list = []
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +181,7 @@ async def get_current_user(authorization: Optional[str]):
     user = await db.users.find_one({"user_id": session["user_id"]}, {"_id": 0})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"last_seen": now_utc()}})
     return user
 
 
@@ -168,6 +252,8 @@ async def get_profile(authorization: Optional[str] = Header(None)):
 async def upsert_profile(payload: ProfileRequest, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     doc = payload.dict()
+    if doc.get("photo_url") is None:
+        doc.pop("photo_url", None)  # preserve existing photo when not provided
     doc["user_id"] = user["user_id"]
     doc["updated_at"] = now_utc()
     await db.profiles.update_one({"user_id": user["user_id"]}, {"$set": doc}, upsert=True)
@@ -185,7 +271,7 @@ async def profile_to_card(p) -> dict:
     rating = round(sum(r["rating"] for r in reviews) / n, 1) if n else 0
     h = int(hashlib.md5(uid.encode()).hexdigest(), 16)
     dist = round(0.5 + (h % 60) / 10.0, 1)
-    avatar = (u or {}).get("picture") or f"https://i.pravatar.cc/600?u={uid}"
+    avatar = clean_avatar(p.get("photo_url"))
     return {
         "id": "wp_" + uid,
         "name": p.get("name", "Pekerja"),
@@ -204,6 +290,7 @@ async def profile_to_card(p) -> dict:
         "avatar": avatar,
         "bio": p.get("bio", ""),
         "availability": p.get("availability", ""),
+        "phone": p.get("phone", ""),
         "owner_user_id": uid,
         "is_real": True,
     }
@@ -355,8 +442,10 @@ async def create_real_match(worker_uid, employer_uid, job):
         "worker_user_id": worker_uid, "employer_user_id": employer_uid, "job_id": job["id"],
         "worker_name": (wp or {}).get("name") or (worker_user or {}).get("name", "Pekerja"),
         "worker_category": (wp or {}).get("category", ""),
-        "worker_avatar": wcard.get("avatar", ""),
+        "worker_avatar": clean_avatar(wcard.get("avatar", "")),
+        "worker_phone": (wp or {}).get("phone", ""),
         "job_title": job["title"], "job_business": job["business"], "job_category": job.get("category", ""),
+        "job_phone": job.get("phone", ""),
         "job_done": False, "reviewed_by": [], "created_at": now_utc(),
     }
     await db.matches.insert_one(doc.copy())
@@ -369,7 +458,7 @@ def display_for(m, uid):
     if m["kind"] == "bot":
         return {
             "id": m["id"], "kind": "bot", "entity_type": m["entity_type"],
-            "title": m["title"], "subtitle": m["subtitle"], "image": m.get("image", ""),
+            "title": m["title"], "subtitle": m["subtitle"], "image": clean_avatar(m.get("image", "")),
             "category": m.get("category", ""),
             "job_done": m.get("job_done", False), "reviewed": m.get("reviewed", False),
             "created_at": m.get("created_at"),
@@ -379,7 +468,7 @@ def display_for(m, uid):
         title, subtitle, image, ent = m["job_title"], m["job_business"], "", "job"
         category = m["job_category"]
     else:
-        title, subtitle, image, ent = m["worker_name"], "Pelamar • " + m["worker_category"], m["worker_avatar"], "worker"
+        title, subtitle, image, ent = m["worker_name"], "Pelamar • " + m["worker_category"], clean_avatar(m["worker_avatar"]), "worker"
         category = m["worker_category"]
     return {
         "id": m["id"], "kind": "real", "entity_type": ent,
@@ -398,7 +487,8 @@ async def swipe(payload: SwipeRequest, authorization: Optional[str] = Header(Non
     await db.swipes.update_one(
         {"swiper_user_id": uid, "target_type": payload.target_type, "target_id": payload.target_id},
         {"$set": {"swiper_user_id": uid, "target_type": payload.target_type,
-                  "target_id": payload.target_id, "direction": payload.direction, "created_at": now_utc()}},
+                  "target_id": payload.target_id, "direction": payload.direction,
+                  "screening_answers": payload.screening_answers or [], "created_at": now_utc()}},
         upsert=True,
     )
 
@@ -448,6 +538,15 @@ async def swipe(payload: SwipeRequest, authorization: Optional[str] = Header(Non
     return {"matched": False}
 
 
+@api_router.post("/swipe/undo")
+async def undo_swipe(payload: UndoSwipeRequest, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    await db.swipes.delete_one(
+        {"swiper_user_id": uid, "target_type": payload.target_type, "target_id": payload.target_id})
+    return {"ok": True}
+
+
 @api_router.get("/matches")
 async def list_matches(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -458,7 +557,57 @@ async def list_matches(authorization: Optional[str] = Header(None)):
         d = display_for(m, uid)
         last = await db.messages.find({"match_id": m["id"]}, {"_id": 0}).sort("created_at", -1).to_list(1)
         d["last_message"] = last[0]["text"] if last else ""
+        d["unread"] = await unread_count(m, uid)
         out.append(d)
+    return out
+
+
+@api_router.get("/matches/unread-count")
+async def matches_unread_count(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    raw = await db.matches.find({"participants": uid}, {"_id": 0}).to_list(500)
+    total = 0
+    for m in raw:
+        total += await unread_count(m, uid)
+    return {"count": total}
+
+
+@api_router.get("/applicants")
+async def list_applicants(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    my_jobs = await db.jobs.find({"owner_user_id": uid, "deleted_at": None}, {"_id": 0}).to_list(500)
+    my_job_ids = {j["id"]: j for j in my_jobs}
+    if not my_job_ids:
+        return []
+    swipes = await db.swipes.find(
+        {"target_type": "job", "target_id": {"$in": list(my_job_ids.keys())}, "direction": "right"},
+        {"_id": 0}).sort("created_at", -1).to_list(2000)
+    out, seen = [], set()
+    for s in swipes:
+        wuid = s["swiper_user_id"]
+        if wuid == uid or wuid in seen:
+            continue
+        wp = await db.profiles.find_one({"user_id": wuid}, {"_id": 0})
+        if not wp:
+            continue
+        seen.add(wuid)
+        card = await profile_to_card(wp)
+        job = my_job_ids[s["target_id"]]
+        already = await db.swipes.find_one(
+            {"swiper_user_id": uid, "target_type": "worker", "target_id": "wp_" + wuid, "direction": "right"})
+        matched = await db.matches.find_one(
+            {"kind": "real", "worker_user_id": wuid, "employer_user_id": uid}, {"_id": 0})
+        card.update({
+            "applied_job_title": job["title"],
+            "applied_job_id": job["id"],
+            "screening_questions": job.get("screening_questions", []),
+            "screening_answers": s.get("screening_answers", []),
+            "matched": bool(matched),
+            "match_id": matched["id"] if matched else None,
+        })
+        out.append(card)
     return out
 
 
@@ -472,8 +621,70 @@ async def _match_for_user(match_id, uid):
 @api_router.get("/matches/{match_id}")
 async def get_match(match_id: str, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
-    m = await _match_for_user(match_id, user["user_id"])
-    return display_for(m, user["user_id"])
+    uid = user["user_id"]
+    m = await _match_for_user(match_id, uid)
+    d = display_for(m, uid)
+    if m["kind"] == "real":
+        if uid == m["worker_user_id"]:
+            other = m["employer_user_id"]
+            job = await db.jobs.find_one({"id": m["job_id"]}, {"_id": 0, "phone": 1})
+            d["phone"] = (job or {}).get("phone") or m.get("job_phone", "")
+        else:
+            other = m["worker_user_id"]
+            wp = await db.profiles.find_one({"user_id": m["worker_user_id"]}, {"_id": 0, "phone": 1})
+            d["phone"] = (wp or {}).get("phone") or m.get("worker_phone", "")
+        d["online"] = await is_online(other)
+    else:
+        d["online"] = False
+        d["phone"] = ""
+    return d
+
+
+@api_router.post("/matches/{match_id}/read")
+async def mark_read(match_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    await _match_for_user(match_id, uid)
+    await db.matches.update_one({"id": match_id}, {"$set": {f"read_at.{uid}": now_utc()}})
+    return {"ok": True}
+
+
+@api_router.post("/matches/{match_id}/schedule")
+async def create_schedule(match_id: str, payload: ScheduleRequest, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    await _match_for_user(match_id, uid)
+    sched = {
+        "id": f"sch_{uuid.uuid4().hex[:10]}",
+        "kind": payload.kind,
+        "when": payload.when,
+        "note": payload.note,
+        "status": "pending",
+        "proposed_by": uid,
+    }
+    await db.messages.insert_one({
+        "match_id": match_id, "sender": uid, "kind": "schedule",
+        "text": f"Mengusulkan {payload.kind}", "schedule": sched, "created_at": now_utc(),
+    })
+    return await db.messages.find({"match_id": match_id}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+
+
+@api_router.post("/matches/{match_id}/schedule/{sched_id}/respond")
+async def respond_schedule(match_id: str, sched_id: str, payload: ScheduleRespondRequest,
+                           authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    uid = user["user_id"]
+    await _match_for_user(match_id, uid)
+    status = "accepted" if payload.accept else "declined"
+    await db.messages.update_one(
+        {"match_id": match_id, "schedule.id": sched_id}, {"$set": {"schedule.status": status}})
+    verb = "menerima" if payload.accept else "menolak"
+    await db.messages.insert_one({
+        "match_id": match_id, "sender": "system",
+        "text": f"Jadwal {verb}. " + ("Sampai jumpa! 👍" if payload.accept else "Silakan ajukan waktu lain."),
+        "created_at": now_utc(),
+    })
+    return await db.messages.find({"match_id": match_id}, {"_id": 0}).sort("created_at", 1).to_list(1000)
 
 
 @api_router.get("/matches/{match_id}/messages")
@@ -559,6 +770,28 @@ async def root():
     return {"message": "Kerjo API"}
 
 
+@api_router.post("/upload")
+async def upload_photo(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    data = await file.read()
+    ext = (file.filename or "photo.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp", "heic"):
+        ext = "jpg"
+    ctype = file.content_type or "image/jpeg"
+    path = f"{APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4().hex}.{ext}"
+    await run_in_threadpool(put_object, path, data, ctype)
+    return {"path": path, "url": f"/api/files/{path}"}
+
+
+@api_router.get("/files/{path:path}")
+async def serve_file(path: str):
+    try:
+        content, ctype = await run_in_threadpool(get_object, path)
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(content=content, media_type=ctype)
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -585,11 +818,19 @@ from seed_data import WORKERS, JOBS, REVIEW_POOL, REVIEW_AUTHORS
 
 @app.on_event("startup")
 async def startup():
+    try:
+        await run_in_threadpool(init_storage)
+    except Exception as e:
+        logger.warning("Object storage init failed: %s", e)
     await db.users.create_index("email", unique=True)
     await db.users.create_index("user_id", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
     await db.matches.create_index("participants")
+
+    # One-time migration: strip legacy human-face (pravatar) snapshots from old match docs.
+    await db.matches.update_many({"image": {"$regex": "pravatar|randomuser|unsplash"}}, {"$set": {"image": ""}})
+    await db.matches.update_many({"worker_avatar": {"$regex": "pravatar|randomuser|unsplash"}}, {"$set": {"worker_avatar": ""}})
 
     if await db.workers.count_documents({}) == 0:
         docs, review_docs = [], []

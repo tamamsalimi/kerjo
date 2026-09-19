@@ -1,7 +1,8 @@
 # Seed data for Kerjo. Exact data from the product brief.
 
 def av(n):
-    return f"https://i.pravatar.cc/600?img={n}"
+    # No human face imagery — seed profiles use category icon badges (avatar empty).
+    return ""
 
 
 WORKERS = [

@@ -59,3 +59,15 @@ distance, pay, experience, category, job type. Warm Indonesian red/white design.
 ## Next Tasks
 - Gather user feedback on match rate & filter usefulness.
 - Add worker profile photo upload and richer job detail.
+
+## Session Changelog (June 2026 — features batch)
+- P0 FIXED: legacy human-face (pravatar) URLs stripped from matches via startup migration + `clean_avatar()` read-time hardening (also blocks randomuser/unsplash). Verified /api/matches returns empty image everywhere.
+- Undo swipe: `POST /api/swipe/undo`; home "Batal" FAB restores last passed/liked card (disabled after a match).
+- Hiring shortcuts: home Hiring mode shows "Pelamar" (with live count) + "Pasang Kerja" buttons.
+- Applicant list: `GET /api/applicants` + `/applicants` screen — workers who liked my jobs, with screening answers, "Terima & Cocokkan" to match.
+- Chat unread badge: `GET /api/matches/unread-count` + per-match `unread`; `POST /api/matches/{id}/read`; Chat tab badge, cleared on open.
+- Online status: `last_seen` on every authed request; `is_online` (<120s) surfaced in `GET /api/matches/{id}` → "sedang aktif" dot.
+- Phone calls: worker/employer phone (resolved at read time from job/profile) → tel: call button in chat header.
+- Candidate screening: jobs carry up to 3 `screening_questions`; workers answer when applying; answers shown to employer in applicants list.
+- Scheduling: `POST /api/matches/{id}/schedule` + respond — "Jadwalkan" sheet (Wawancara/Tes/Hari Pertama + date + time slot + note); schedule bubbles with Terima/Tolak.
+- Tested: backend 45/45 pytest pass; frontend flows verified by testing agent (iteration_4).

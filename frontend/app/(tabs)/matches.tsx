@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback } from "react";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Icon } from "@/src/components/ui";
-import { categoryIcon } from "@/src/constants";
+import { CategoryAvatar, Icon } from "@/src/components/ui";
 import { fetchMatches } from "@/src/api";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -55,13 +53,7 @@ export default function Matches() {
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
             <Pressable style={styles.row} onPress={() => router.push(`/chat/${item.id}`)} testID={`match-row-${item.id}`}>
-              {item.entity_type === "worker" && item.image ? (
-                <Image source={{ uri: item.image }} style={styles.avatar} contentFit="cover" />
-              ) : (
-                <View style={[styles.avatar, styles.iconAvatar, { backgroundColor: colors.brandTertiary }]}>
-                  <Icon name={categoryIcon(item.category)} size={26} color={colors.onBrandTertiary} />
-                </View>
-              )}
+              <CategoryAvatar category={item.category} photo={item.image} size={58} />
               <View style={styles.rowBody}>
                 <View style={styles.rowTop}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{item.title}</Text>

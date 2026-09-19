@@ -52,6 +52,7 @@ function RootNavigator() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="worker/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="chat/[id]" options={{ presentation: "card" }} />
+      <Stack.Screen name="applicants" options={{ presentation: "card" }} />
     </Stack>
   );
 }

@@ -1,4 +1,5 @@
 // API client for Kerjo. Reads base URL from env, attaches bearer token.
+import { Platform } from "react-native";
 
 const BASE = (process.env.EXPO_PUBLIC_BACKEND_URL as string) + "/api";
 
@@ -102,15 +103,53 @@ export async function fetchJob(id: string) {
 }
 
 // ---- Swipe / match ----
-export async function postSwipe(target_type: string, target_id: string, direction: string) {
+export async function postSwipe(
+  target_type: string,
+  target_id: string,
+  direction: string,
+  screening_answers?: string[],
+) {
   return request<{ matched: boolean; match?: any }>("/swipe", {
     method: "POST",
-    body: { target_type, target_id, direction },
+    body: { target_type, target_id, direction, screening_answers },
+  });
+}
+
+export async function undoSwipe(target_type: string, target_id: string) {
+  return request<{ ok: boolean }>("/swipe/undo", {
+    method: "POST",
+    body: { target_type, target_id },
   });
 }
 
 export async function fetchMatches() {
   return request<any[]>("/matches");
+}
+
+export async function fetchUnreadCount() {
+  return request<{ count: number }>("/matches/unread-count");
+}
+
+export async function markMatchRead(matchId: string) {
+  return request<{ ok: boolean }>(`/matches/${matchId}/read`, { method: "POST" });
+}
+
+export async function fetchApplicants() {
+  return request<any[]>("/applicants");
+}
+
+export async function scheduleMeeting(matchId: string, kind: string, when: string, note: string) {
+  return request<any[]>(`/matches/${matchId}/schedule`, {
+    method: "POST",
+    body: { kind, when, note },
+  });
+}
+
+export async function respondSchedule(matchId: string, schedId: string, accept: boolean) {
+  return request<any[]>(`/matches/${matchId}/schedule/${schedId}/respond`, {
+    method: "POST",
+    body: { accept },
+  });
 }
 
 export async function fetchMatch(id: string) {
@@ -147,4 +186,29 @@ export async function saveProfile(profile: any) {
 
 export async function createJob(job: any) {
   return request<any>("/jobs", { method: "POST", body: job });
+}
+
+export function mediaUrl(pathOrUrl: string): string {
+  if (!pathOrUrl) return "";
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
+  return (process.env.EXPO_PUBLIC_BACKEND_URL as string) + pathOrUrl;
+}
+
+export async function uploadPhoto(uri: string): Promise<string> {
+  const name = uri.split("/").pop() || "photo.jpg";
+  const match = /\.(\w+)$/.exec(name);
+  const type = match ? `image/${match[1].toLowerCase()}` : "image/jpeg";
+  const form = new FormData();
+  if (Platform.OS === "web") {
+    const blob = await (await fetch(uri)).blob();
+    form.append("file", blob, name);
+  } else {
+    form.append("file", { uri, name, type } as any);
+  }
+  const headers: Record<string, string> = {};
+  if (inMemoryToken) headers.Authorization = `Bearer ${inMemoryToken}`;
+  const res = await fetch(BASE + "/upload", { method: "POST", headers, body: form });
+  if (!res.ok) throw new ApiError(res.status, "Upload failed");
+  const data = await res.json();
+  return mediaUrl(data.url);
 }

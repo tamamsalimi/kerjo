@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { JobCard, WorkerCard } from "@/src/components/cards";
@@ -23,7 +23,7 @@ import {
   formatPay,
   type Filters,
 } from "@/src/constants";
-import { fetchJobs, fetchWorkers, postSwipe } from "@/src/api";
+import { fetchApplicants, fetchJobs, fetchWorkers, postSwipe, undoSwipe } from "@/src/api";
 import { useLocation } from "@/src/hooks/use-location";
 import { usesNativeTabs } from "@/src/navigation";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
@@ -47,6 +47,8 @@ export default function Home() {
   const [jobDetail, setJobDetail] = useState<any | null>(null);
   const [match, setMatch] = useState<any | null>(null);
   const [showMatch, setShowMatch] = useState(false);
+  const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [screening, setScreening] = useState<{ item: any; answers: string[] } | null>(null);
 
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
 
@@ -55,26 +57,59 @@ export default function Home() {
     queryFn: () => (mode === "work" ? fetchJobs(filters) : fetchWorkers(filters)),
   });
 
+  const { data: applicants } = useQuery({
+    queryKey: ["applicants"],
+    queryFn: fetchApplicants,
+    enabled: mode === "hire",
+    refetchInterval: mode === "hire" ? 8000 : false,
+  });
+  const applicantCount = applicants?.length ?? 0;
+
   useEffect(() => {
     if (data) setCards(data);
   }, [data]);
 
-  async function handleSwipe(item: any, dir: "left" | "right") {
-    setCards((prev) => prev.filter((c) => c.id !== item.id));
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(dir === "right" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
-    }
+  async function doSwipe(item: any, dir: "left" | "right", answers?: string[]) {
     try {
-      const res = await postSwipe(mode === "work" ? "job" : "worker", item.id, dir);
+      const res = await postSwipe(mode === "work" ? "job" : "worker", item.id, dir, answers);
       if (res.matched && res.match) {
         setMatch(res.match);
         setShowMatch(true);
+        setUndoStack([]); // can't undo a swipe that produced a match
         queryClient.invalidateQueries({ queryKey: ["matches"] });
         if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      } else {
+        setUndoStack((prev) => [...prev, { item, type: mode === "work" ? "job" : "worker" }]);
       }
     } catch {
       // silent
     }
+  }
+
+  function handleSwipe(item: any, dir: "left" | "right") {
+    setCards((prev) => prev.filter((c) => c.id !== item.id));
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(dir === "right" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light);
+    }
+    // If applying to a job that has screening questions, collect answers first.
+    if (mode === "work" && dir === "right" && Array.isArray(item.screening_questions) && item.screening_questions.length) {
+      setScreening({ item, answers: item.screening_questions.map(() => "") });
+      return;
+    }
+    doSwipe(item, dir);
+  }
+
+  async function handleUndo() {
+    const last = undoStack[undoStack.length - 1];
+    if (!last) return;
+    setUndoStack((prev) => prev.slice(0, -1));
+    try {
+      await undoSwipe(last.type, last.item.id);
+    } catch {
+      // silent
+    }
+    setCards((prev) => (prev.some((c) => c.id === last.item.id) ? prev : [last.item, ...prev]));
+    if (Platform.OS !== "web") Haptics.selectionAsync();
   }
 
   function openDetail(item: any) {
@@ -147,6 +182,29 @@ export default function Home() {
         </ScrollView>
       </View>
 
+      {/* Hiring-mode shortcuts */}
+      {mode === "hire" ? (
+        <View style={styles.hireBar}>
+          <Pressable style={styles.hireBtn} onPress={() => router.push("/applicants")} testID="applicants-shortcut">
+            <Icon name="account-multiple-check" size={18} color={colors.brandPrimary} />
+            <Text style={styles.hireBtnText}>Pelamar</Text>
+            {applicantCount > 0 ? (
+              <View style={styles.hireBadge}>
+                <Text style={styles.hireBadgeText}>{applicantCount}</Text>
+              </View>
+            ) : null}
+          </Pressable>
+          <Pressable
+            style={[styles.hireBtn, styles.hireBtnPrimary]}
+            onPress={() => router.push("/(tabs)/post")}
+            testID="post-shortcut"
+          >
+            <Icon name="plus" size={18} color={colors.onBrandPrimary} />
+            <Text style={[styles.hireBtnText, { color: colors.onBrandPrimary }]}>Pasang Kerja</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {/* Deck */}
       <View style={[styles.deckArea, { paddingBottom: 108 + bottomChrome }]}>
         {isLoading ? (
@@ -202,6 +260,15 @@ export default function Home() {
       {/* Floating action buttons */}
       {cards.length > 0 && !isLoading && !isError ? (
         <View style={[styles.fabRow, { bottom: bottomChrome + spacing.lg }]}>
+          {undoStack.length > 0 ? (
+            <Pressable
+              style={[styles.fab, styles.fabTiny]}
+              onPress={handleUndo}
+              testID="undo-button"
+            >
+              <Icon name="undo-variant" size={24} color={colors.warning} />
+            </Pressable>
+          ) : null}
           <Pressable
             style={[styles.fab, styles.fabSmall]}
             onPress={() => deckRef.current?.swipeLeft()}
@@ -323,6 +390,54 @@ export default function Home() {
         }}
         onKeepSwiping={() => setShowMatch(false)}
       />
+
+      {/* Screening questions sheet */}
+      <BottomSheet
+        visible={!!screening}
+        onClose={() => {
+          if (screening) doSwipe(screening.item, "right", screening.answers);
+          setScreening(null);
+        }}
+        title="Pertanyaan Screening"
+        testID="screening-sheet"
+      >
+        {screening ? (
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={styles.screenHint}>
+              Jawab beberapa pertanyaan dari pemberi kerja agar lamaranmu lebih dilirik.
+            </Text>
+            {screening.item.screening_questions.map((q: string, i: number) => (
+              <View key={i} style={{ marginBottom: spacing.md }}>
+                <Text style={styles.screenQ}>{i + 1}. {q}</Text>
+                <TextInput
+                  style={styles.screenInput}
+                  value={screening.answers[i]}
+                  onChangeText={(t) =>
+                    setScreening((s) =>
+                      s ? { ...s, answers: s.answers.map((a, idx) => (idx === i ? t : a)) } : s,
+                    )
+                  }
+                  placeholder="Jawabanmu…"
+                  placeholderTextColor={colors.muted}
+                  multiline
+                  testID={`screening-answer-${i}`}
+                />
+              </View>
+            ))}
+            <PrimaryButton
+              label="Kirim Lamaran"
+              icon="send"
+              testID="screening-submit"
+              onPress={() => {
+                const s = screening;
+                setScreening(null);
+                if (s) doSwipe(s.item, "right", s.answers);
+              }}
+              style={{ marginTop: spacing.sm }}
+            />
+          </ScrollView>
+        ) : null}
+      </BottomSheet>
     </View>
   );
 }
@@ -434,6 +549,43 @@ const useStyles = makeStyles((colors) => ({
   },
   fabSmall: { width: 62, height: 62 },
   fabLarge: { width: 70, height: 70 },
+  fabTiny: { width: 52, height: 52 },
+  hireBar: { flexDirection: "row", gap: spacing.sm, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  hireBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 42,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTertiary,
+  },
+  hireBtnPrimary: { backgroundColor: colors.brandPrimary },
+  hireBtnText: { fontFamily: fonts.medium, fontSize: 14, color: colors.brandPrimary },
+  hireBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 5,
+    backgroundColor: colors.brandPrimary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  hireBadgeText: { fontFamily: fonts.medium, fontSize: 11, color: colors.onBrandPrimary },
+  screenHint: { fontFamily: fonts.regular, fontSize: 14, color: colors.muted, marginBottom: spacing.md, lineHeight: 20 },
+  screenQ: { fontFamily: fonts.medium, fontSize: 15, color: colors.onSurface, marginBottom: spacing.xs },
+  screenInput: {
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    color: colors.onSurface,
+    minHeight: 56,
+    textAlignVertical: "top",
+  },
   groupTitle: { fontFamily: fonts.medium, fontSize: 15, color: colors.onSurface, marginBottom: spacing.sm },
   groupChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   detailBiz: { flexDirection: "row", alignItems: "center", gap: spacing.md },

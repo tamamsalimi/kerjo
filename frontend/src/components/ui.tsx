@@ -1,7 +1,50 @@
 import MaterialDesignIcons from "@react-native-vector-icons/material-design-icons";
+import { Image } from "expo-image";
 import { ActivityIndicator, Pressable, Text, View, type ViewStyle } from "react-native";
 
+import { categoryColor, categoryIcon } from "@/src/constants";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+
+// Default avatar: category icon in a colored circular badge; a photo replaces it when present.
+export function CategoryAvatar({
+  category,
+  photo,
+  size = 56,
+  style,
+}: {
+  category?: string;
+  photo?: string;
+  size?: number;
+  style?: ViewStyle;
+}) {
+  if (photo) {
+    return (
+      <Image
+        source={{ uri: photo }}
+        style={[{ width: size, height: size, borderRadius: size / 2 }, style]}
+        contentFit="cover"
+        transition={150}
+      />
+    );
+  }
+  return (
+    <View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: categoryColor(category),
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        style,
+      ]}
+    >
+      <MaterialDesignIcons name={categoryIcon(category) as any} size={Math.round(size * 0.5)} color="#FFFFFF" />
+    </View>
+  );
+}
 
 // Central icon wrapper so we can swap sets in one place.
 export function Icon({
