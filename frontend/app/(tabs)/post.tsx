@@ -29,6 +29,7 @@ export default function PostJob() {
   const [experience, setExperience] = useState(EXPERIENCE_LABELS[0]);
   const [description, setDescription] = useState("");
   const [phone, setPhone] = useState("");
+  const [workers, setWorkers] = useState(1);
   const [questions, setQuestions] = useState<string[]>([""]);
 
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
@@ -43,6 +44,7 @@ export default function PostJob() {
       setPayAmount("");
       setDescription("");
       setPhone("");
+      setWorkers(1);
       setQuestions([""]);
     },
     onError: () => toast("Gagal memasang lowongan", "error"),
@@ -64,6 +66,7 @@ export default function PostJob() {
       min_experience_label: experience,
       description: description.trim(),
       phone: phone.trim(),
+      workers_needed: workers,
       screening_questions: questions.map((q) => q.trim()).filter(Boolean),
     });
   }
@@ -168,6 +171,31 @@ export default function PostJob() {
           />
         </Field>
 
+        <Field label="Jumlah Orang Dibutuhkan">
+          <View style={styles.stepper}>
+            <Pressable
+              style={[styles.stepBtn, workers <= 1 && styles.stepBtnDisabled]}
+              disabled={workers <= 1}
+              onPress={() => setWorkers((w) => Math.max(1, w - 1))}
+              testID="workers-minus"
+            >
+              <Icon name="minus" size={20} color={workers <= 1 ? colors.muted : colors.brandPrimary} />
+            </Pressable>
+            <Text style={styles.stepValue} testID="workers-value">{workers}</Text>
+            <Pressable
+              style={[styles.stepBtn, workers >= 20 && styles.stepBtnDisabled]}
+              disabled={workers >= 20}
+              onPress={() => setWorkers((w) => Math.min(20, w + 1))}
+              testID="workers-plus"
+            >
+              <Icon name="plus" size={20} color={workers >= 20 ? colors.muted : colors.brandPrimary} />
+            </Pressable>
+            <Text style={styles.stepHint}>
+              {workers > 1 ? `Lowongan tetap terbuka sampai ${workers} pekerja cocok` : "Butuh 1 pekerja"}
+            </Text>
+          </View>
+        </Field>
+
         <Field label="Pertanyaan Screening (opsional)">
           <Text style={styles.helper}>Pelamar akan menjawab ini saat melamar. Maks 3.</Text>
           {questions.map((q, i) => (
@@ -256,6 +284,14 @@ const useStyles = makeStyles((colors) => ({
   },
   addQ: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: spacing.xs },
   addQText: { fontFamily: fonts.medium, fontSize: 14, color: colors.brandPrimary },
+  stepper: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  stepBtn: {
+    width: 44, height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center",
+  },
+  stepBtnDisabled: { opacity: 0.5 },
+  stepValue: { fontFamily: fonts.medium, fontSize: 20, color: colors.onSurface, minWidth: 28, textAlign: "center" },
+  stepHint: { flex: 1, fontFamily: fonts.regular, fontSize: 12, color: colors.muted },
   footer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,

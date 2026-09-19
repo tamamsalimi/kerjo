@@ -115,6 +115,9 @@ export function JobCard({ item, onOpenDetail }: { item: any; onOpenDetail: () =>
         <View style={styles.pillRow}>
           <Pill icon="map-marker" text={`${item.distance_km} km`} />
           <Pill icon="star-outline" text={item.min_experience_label} />
+          {item.workers_needed > 1 ? (
+            <Pill icon="account-group" text={`Butuh ${item.workers_needed} orang`} />
+          ) : null}
         </View>
       </View>
     </View>

@@ -164,6 +164,7 @@ class JobRequest(BaseModel):
     description: str = ""
     phone: str = ""
     screening_questions: list = []
+    workers_needed: int = 1
 
 
 # ---------------------------------------------------------------------------
@@ -331,10 +332,16 @@ async def list_jobs(authorization: Optional[str] = Header(None), category: str =
     swiped_ids = {s["target_id"] for s in swiped}
     # seed jobs (owner None) + real jobs from OTHER users
     jobs = await db.jobs.find({"deleted_at": None}, {"_id": 0}).to_list(2000)
+    # count how many workers have already matched each job → auto-close when full
+    match_counts = {}
+    async for row in db.matches.aggregate(
+        [{"$match": {"kind": "real"}}, {"$group": {"_id": "$job_id", "c": {"$sum": 1}}}]):
+        match_counts[row["_id"]] = row["c"]
     result = [
         j for j in jobs
         if j["id"] not in swiped_ids
         and j.get("owner_user_id") != uid
+        and match_counts.get(j["id"], 0) < max(1, int(j.get("workers_needed", 1)))
         and matches_filters(j, category, job_type, max_distance, pay_bracket, experience)
     ]
     return result
