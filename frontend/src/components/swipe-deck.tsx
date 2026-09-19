@@ -1,5 +1,5 @@
-import { forwardRef, useImperativeHandle, useRef, type ReactNode } from "react";
-import { Dimensions, StyleSheet, Text, View } from "react-native";
+import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
+import { Dimensions, LayoutChangeEvent, StyleSheet, Text, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -39,9 +39,15 @@ function SwipeDeckInner<T>(
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const busy = useRef(false);
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
   const dataRef = useRef(data);
   dataRef.current = data;
+
+  function onLayout(e: LayoutChangeEvent) {
+    const { width, height } = e.nativeEvent.layout;
+    setSize((prev) => (prev.width !== width || prev.height !== height ? { width, height } : prev));
+  }
 
   function finish(dir: "left" | "right") {
     const item = dataRef.current[0];
@@ -101,17 +107,19 @@ function SwipeDeckInner<T>(
 
   const top = data[0];
   const behind = data[1];
+  const ready = size.width > 0 && size.height > 0;
+  const cardSize = { width: size.width, height: size.height };
 
   return (
-    <View style={styles.deck}>
-      {behind ? (
-        <View key={keyExtractor(behind)} style={[styles.cardWrap, styles.behind]} pointerEvents="none">
+    <View style={styles.deck} onLayout={onLayout}>
+      {ready && behind ? (
+        <View key={keyExtractor(behind)} style={[styles.cardWrap, cardSize, styles.behind, { pointerEvents: "none" }]}>
           {renderCard(behind)}
         </View>
       ) : null}
-      {top ? (
+      {ready && top ? (
         <GestureDetector key={keyExtractor(top)} gesture={pan}>
-          <Animated.View style={[styles.cardWrap, topStyle]} testID="swipe-card-top">
+          <Animated.View style={[styles.cardWrap, cardSize, topStyle]} testID="swipe-card-top">
             {renderCard(top)}
             <Animated.View style={[styles.stamp, styles.stampLike, { borderColor: colors.success }, likeStyle]}>
               <Text style={[styles.stampText, { color: colors.success }]}>{likeLabel}</Text>
@@ -133,7 +141,9 @@ export const SwipeDeck = forwardRef(SwipeDeckInner) as <T>(
 const styles = StyleSheet.create({
   deck: { flex: 1 },
   cardWrap: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
     borderRadius: radius.lg,
     overflow: "hidden",
   },

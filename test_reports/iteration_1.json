@@ -1,0 +1,59 @@
+{
+  "summary": "Kerjo full-stack regression test. Backend: all 18 pytest cases pass (auth, jobs/workers listing + filters, worker detail with reviews, swipe deterministic-match on jb_1 and wk_2, matches, messages + auto-reply, complete, review, profile upsert, create job). Frontend (web): the swipe-deck iOS blank-card fix does NOT break web — job card in Cari Kerja and worker card in Merekrut render at full 358x556 with title/pay/badges visible. Left-swipe (pass-button) advances the deck. Right-swipe on jb_1 fires deterministic mutual match, and the animated 'It's a Match!' overlay renders with 'Kirim Pesan' + 'Lanjut Swipe'. Kirim Pesan navigates to /chat/[id] where greeting is present, sending 'TEST_msg_1' persists and returns an auto-reply, and Selesai opens the review sheet with star-1..5 + submit-review controls. Matches tab lists all 4 test matches with last message + 'Selesai' status. Filter bottom sheet (Jarak/Bayaran/Pengalaman/Tipe Kerja) opens with all chips and Reset/Terapkan. Pasang (/post) form renders all inputs. Worker profile /worker/{id} shows trust stats (verified badge, rating, jobs, distance) + reviews. No red screen errors. No deprecated Expo packages detected (no expo-av, expo-barcode-scanner, expo-background-fetch usage in server or components). Two RN deprecation console warnings observed: 'shadow* style props deprecated (use boxShadow)' and 'props.pointerEvents is deprecated (use style.pointerEvents)' — non-blocking but should be cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Chat / Post / Matches",
+        "issues": [
+          "Bottom tab bar buttons (Cari/Chat/Pasang/Profil) do not expose testID props for automation. Tabs work for real users but block reliable Playwright bottom-nav tests — had to fall back to URL navigation (/post, /matches, /chat/[id])."
+        ]
+      }
+    ],
+    "react_native_issues": [
+      {
+        "component": "swipe-deck / global styles",
+        "issue": "Console warning: '\"shadow*\" style props are deprecated. Use \"boxShadow\".' fires repeatedly on load. Replace shadowColor/shadowOffset/shadowOpacity/shadowRadius with boxShadow (or gate via Platform) to silence and stay forward-compatible on web/RN 0.76+."
+      },
+      {
+        "component": "swipe-deck.tsx behind card wrapper",
+        "issue": "Console warning: 'props.pointerEvents is deprecated. Use style.pointerEvents'. Reference: /app/frontend/src/components/swipe-deck.tsx:116 uses pointerEvents=\"none\" as a prop; move to style={{ pointerEvents: 'none' }}."
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Add testID props to the bottom tab bar items (Tabs.Screen options / tabBarButton) so Playwright can reliably navigate via taps instead of direct URLs.",
+    "OPTIONAL: Migrate deprecated `shadow*` style props to `boxShadow` (or wrap with Platform.select) to remove console noise on web.",
+    "OPTIONAL: In /app/frontend/src/components/swipe-deck.tsx line 116, replace the `pointerEvents=\"none\"` prop on the behind card wrapper with `style={{ pointerEvents: 'none' }}` (merged into existing style) to remove the React Native deprecation warning.",
+    "NOTE (informational, no fix required): pytest under xdist LoadScopeScheduling can split TestSwipe from TestMatchesAndChat across workers and break the shared match_id used across classes. Run with `pytest -o addopts=\"\"` (as done here) or convert the dependent tests into a single class/fixture-managed suite. All 18 tests pass when scheduled to the same worker."
+  ],
+  "critical_code_review_comments": [
+    "server.py mixes route definitions, models, seed import and startup handler in a single ~525-line file. Still under the 700-line threshold, but consider splitting routers (auth/browse/matches/profile) as it grows.",
+    "server.py uses deprecated FastAPI @app.on_event('startup'); consider migrating to the lifespan context manager to avoid future deprecation warnings.",
+    "server.py CORS allow_origins=['*'] with allow_credentials=True is technically ignored by browsers per CORS spec; if credentials are ever needed, restrict origins to EXPO_PUBLIC_BACKEND_URL host.",
+    "server.py list_jobs/list_workers cap results at .to_list(1000). Fine for seed size but paginate before scale.",
+    "In-memory session lookup via db.user_sessions is fine; expireAfterSeconds=0 index correctly created on expires_at.",
+    "Match logic uses md5(target_id) % 100 < 65 — deterministic and fine for demo; not a real matching system."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new pytest suite, 18 cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18)",
+    "frontend": "100% of tested flows (swipe render, left/right swipe, match overlay, chat greeting, send + auto-reply, mark done + review sheet, filter sheet, matches list, post-job form, worker profile). Bottom-tab taps not directly testable — navigated via URL."
+  },
+  "seed_data_creation": "Used the pre-existing seeded test session (testtoken_kerjo_123 → user_testkerjo01) and seed workers/jobs. Created test-only artifacts: swipes (jb_1 left, jb_1 right, wk_2 right and additional right-swipes to trigger a match on jb_2/wk_1 during UI test), a profile for user_testkerjo01 (name='TEST_Tester'), 1 new job (TEST_Kasir @ TEST_Warung), 4 matches with attached messages, 1 review on the worker match. Cleanup not required per review request.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend test suite lives at /app/backend/tests/backend_test.py. Run with `pytest /app/backend/tests/backend_test.py -o addopts=\"\" --junitxml=/app/test_reports/pytest/pytest_results.xml` to avoid xdist splitting the dependent Swipe→Chat tests across workers. Frontend testIDs available: home-screen, mode-work, mode-hire, filter-button, cat-{name}, cat-semua, swipe-card-top, pass-button, like-button, card-info-button, match-overlay, match-message-button, match-keep-button, chat-screen, chat-back, mark-done-button, chat-input, chat-send, review-sheet, sheet-backdrop, sheet-close, star-1..star-5, review-comment, submit-review, post-screen, input-business, input-title, input-pay, input-description, submit-job, matches-screen, match-row-{match_id}. Bottom tab bar buttons LACK testIDs — navigate via URLs: /, /matches, /post, /profile, /chat/{id}, /worker/{id}. Seed jb_1 and wk_2 are guaranteed mutual (md5 % 100 < 65). Also mutual in seed set: jb_2 through several other IDs — you can right-swipe a few times to trigger a match reliably.",
+  "rca_of_issue": "Reported iOS blank-card bug root cause was that swipe cards used StyleSheet.absoluteFillObject inside a flex:1 container — iOS Yoga renders absolute-only children at 0x0. Applied fix in /app/frontend/src/components/swipe-deck.tsx: parent deck now measures via onLayout, and each card wrapper (top and behind) is rendered only when size.width > 0 with explicit width/height passed as cardSize. Verified on web preview that the top card measures 358x556 (viewport 390x844), pass/like buttons advance the deck, and gestures + programmatic swipe still trigger the correct onSwipe callback. No regressions observed. Cannot verify iOS runtime here (needs native build/Expo Go), but the code path is correct: `ready = size.width > 0 && size.height > 0` gates rendering, and cardSize is spread into the wrapper style, which resolves the Yoga zero-size issue on iOS."
+}

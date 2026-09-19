@@ -55,19 +55,19 @@ export default function TabsLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "Cari", tabBarIcon: ({ color }) => <Icon name="cards" size={26} color={color} /> }}
+        options={{ title: "Cari", tabBarButtonTestID: "tab-cari", tabBarIcon: ({ color }) => <Icon name="cards" size={26} color={color} /> }}
       />
       <Tabs.Screen
         name="matches"
-        options={{ title: "Chat", tabBarIcon: ({ color }) => <Icon name="chat-processing" size={26} color={color} /> }}
+        options={{ title: "Chat", tabBarButtonTestID: "tab-chat", tabBarIcon: ({ color }) => <Icon name="chat-processing" size={26} color={color} /> }}
       />
       <Tabs.Screen
         name="post"
-        options={{ title: "Pasang", tabBarIcon: ({ color }) => <Icon name="plus-box" size={26} color={color} /> }}
+        options={{ title: "Pasang", tabBarButtonTestID: "tab-pasang", tabBarIcon: ({ color }) => <Icon name="plus-box" size={26} color={color} /> }}
       />
       <Tabs.Screen
         name="profile"
-        options={{ title: "Profil", tabBarIcon: ({ color }) => <Icon name="account" size={26} color={color} /> }}
+        options={{ title: "Profil", tabBarButtonTestID: "tab-profil", tabBarIcon: ({ color }) => <Icon name="account" size={26} color={color} /> }}
       />
     </Tabs>
   );
