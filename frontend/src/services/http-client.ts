@@ -10,10 +10,6 @@ export function setAuthToken(token: string | null) {
   inMemoryToken = token;
 }
 
-export function getAuthToken(): string | null {
-  return inMemoryToken;
-}
-
 export class ApiError extends Error {
   status: number;
 

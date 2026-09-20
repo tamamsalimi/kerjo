@@ -1,8 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Linking, Pressable, Text, TextInput, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,6 +25,7 @@ import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/features/auth/auth-context";
 import { CATEGORIES, EXPERIENCE_LABELS, JOB_TYPES, categoryIcon } from "@/src/constants";
 import { createJob, uploadJobPhoto } from "@/src/features/jobs/services/jobs-service";
+import { useImagePicker } from "@/src/hooks/use-image-picker";
 import { useLocation } from "@/src/hooks/use-location";
 import { usesNativeTabs } from "@/src/utils/navigation";
 import { setRecentJob } from "@/src/features/jobs/recent-job";
@@ -39,6 +39,7 @@ export default function PostJob() {
   const { colors } = useTheme();
   const styles = useStyles();
   const toast = useToast();
+  const pickImage = useImagePicker();
   const queryClient = useQueryClient();
   const router = useRouter();
   const location = useLocation();
@@ -89,26 +90,11 @@ export default function PostJob() {
   }
 
   async function pickWorkplacePhoto() {
-    const permission = await ImagePicker.getMediaLibraryPermissionsAsync();
-    let status = permission.status;
-    if (status !== "granted") {
-      if (!permission.canAskAgain) {
-        toast("Izinkan akses foto di Pengaturan", "info");
-        Linking.openSettings();
-        return;
-      }
-      status = (await ImagePicker.requestMediaLibraryPermissionsAsync()).status;
-    }
-    if (status !== "granted") {
-      toast("Akses foto dibutuhkan untuk memilih foto", "info");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+    const uri = await pickImage({
       quality: 0.7,
+      permissionMessage: "Akses foto dibutuhkan untuk memilih foto",
     });
-    if (result.canceled) return;
-    const uri = result.assets[0].uri;
+    if (!uri) return;
     setWorkplacePhotos((current) => [
       ...current,
       { id: `workplace-${Date.now()}-${current.length}`, uri },

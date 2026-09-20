@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { Appearance, StyleSheet, useColorScheme } from "react-native";
 
-export type ColorScheme = "light" | "dark";
+type ColorScheme = "light" | "dark";
 
 const light = {
   surface: "#FDFDFD",
@@ -43,10 +43,10 @@ const light = {
   divider: "#F0F0F0",
 };
 
-export type ThemeColors = typeof light;
+type ThemeColors = typeof light;
 
-export const defaultScheme = "light" satisfies ColorScheme;
-export const themes: { light: ThemeColors; dark?: ThemeColors } = { light };
+const defaultScheme = "light" satisfies ColorScheme;
+const themes: { light: ThemeColors; dark?: ThemeColors } = { light };
 
 // Shared font families. Screen-specific hierarchy may use the heavier weights.
 export const fonts = {
@@ -102,7 +102,7 @@ export const softShadow = {
   elevation: 2,
 };
 
-export function setColorScheme(scheme: ColorScheme | null) {
+function setColorScheme(scheme: ColorScheme | null) {
   Appearance.setColorScheme?.(scheme ?? "unspecified");
 }
 

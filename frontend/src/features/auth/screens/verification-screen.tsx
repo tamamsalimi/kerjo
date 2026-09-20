@@ -1,9 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/features/auth/auth-context";
@@ -14,6 +13,7 @@ import {
 } from "@/src/features/auth/services/auth-service";
 import { FormField, FormInput, Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
+import { useImagePicker } from "@/src/hooks/use-image-picker";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type DocumentKind = "ktp" | "face";
@@ -24,6 +24,7 @@ export default function Verification() {
   const styles = useStyles();
   const router = useRouter();
   const toast = useToast();
+  const pickImage = useImagePicker();
   const queryClient = useQueryClient();
   const { refreshUser } = useAuth();
   const { data, isLoading } = useQuery({ queryKey: ["verification"], queryFn: fetchVerification });
@@ -37,20 +38,14 @@ export default function Verification() {
   }, [data?.phone]);
 
   async function pickDocument(kind: DocumentKind) {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permission.status !== "granted") {
-      toast("Izinkan akses foto untuk melanjutkan verifikasi", "info");
-      if (!permission.canAskAgain) Linking.openSettings();
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+    const uri = await pickImage({
       allowsEditing: true,
       quality: 0.8,
+      permissionMessage: "Izinkan akses foto untuk melanjutkan verifikasi",
     });
-    if (result.canceled) return;
-    if (kind === "ktp") setKTPURI(result.assets[0].uri);
-    else setFaceURI(result.assets[0].uri);
+    if (!uri) return;
+    if (kind === "ktp") setKTPURI(uri);
+    else setFaceURI(uri);
   }
 
   const submit = useMutation({

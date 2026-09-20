@@ -29,7 +29,7 @@ export const CATEGORIES = [
 ];
 
 // MaterialDesignIcons name per category
-export const CATEGORY_ICON: Record<string, string> = {
+const CATEGORY_ICON: Record<string, string> = {
   "Bersih-bersih": "broom",
   Tukang: "hammer-wrench",
   Supir: "car",
@@ -108,7 +108,7 @@ export function activeFilterCount(f: Filters): number {
   return n;
 }
 
-export function formatRupiah(amount: number): string {
+function formatRupiah(amount: number): string {
   return "Rp" + amount.toLocaleString("id-ID");
 }
 

@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -32,6 +31,7 @@ import {
   uploadProfilePhoto,
 } from "@/src/features/profile/services/profile-service";
 import { useLocation } from "@/src/hooks/use-location";
+import { useImagePicker } from "@/src/hooks/use-image-picker";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function Onboarding() {
@@ -40,6 +40,7 @@ export default function Onboarding() {
   const styles = useStyles();
   const router = useRouter();
   const toast = useToast();
+  const pickImage = useImagePicker();
   const { user, refreshUser } = useAuth();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -85,36 +86,16 @@ export default function Onboarding() {
   }, [existing]);
 
   async function pickPhoto() {
-    const perm = await ImagePicker.getMediaLibraryPermissionsAsync();
-    let status = perm.status;
-    if (status !== "granted") {
-      if (!perm.canAskAgain) {
-        toast("Izinkan akses foto di Pengaturan", "info");
-        Linking.openSettings();
-        return;
-      }
-      const req = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      status = req.status;
-      if (status !== "granted") {
-        if (!req.canAskAgain) {
-          toast("Izinkan akses foto di Pengaturan", "info");
-          Linking.openSettings();
-        } else {
-          toast("Akses foto dibutuhkan untuk unggah", "info");
-        }
-        return;
-      }
-    }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+    const uri = await pickImage({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.6,
+      permissionMessage: "Akses foto dibutuhkan untuk unggah",
     });
-    if (res.canceled) return;
+    if (!uri) return;
     try {
       setUploading(true);
-      const url = await uploadProfilePhoto(res.assets[0].uri);
+      const url = await uploadProfilePhoto(uri);
       setPhotos((current) => [
         ...current,
         { id: `photo-${Date.now()}-${current.length}`, uri: url, remoteUrl: url },
