@@ -8,6 +8,12 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+        <title>kerjo.id</title>
+        <meta name="application-name" content="kerjo.id" />
+        <meta
+          name="description"
+          content="Temukan kerja dan pekerja lokal terpercaya di kerjo.id"
+        />
         <meta
           name="viewport"
           content="width=device-width, initial-scale=1, shrink-to-fit=no"

@@ -3,11 +3,39 @@ import { useCallback, useEffect, useState } from "react";
 import { Linking, Platform } from "react-native";
 
 type LocState = "undetermined" | "granted" | "denied";
+type Coordinates = { latitude: number; longitude: number };
+
+let cachedCoords: Coordinates | null = null;
 
 export function useLocation() {
   const [status, setStatus] = useState<LocState>("undetermined");
   const [canAskAgain, setCanAskAgain] = useState(true);
-  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [coords, setCoordsState] = useState<Coordinates | null>(cachedCoords);
+  const setCoords = useCallback((value: Coordinates) => {
+    cachedCoords = value;
+    setCoordsState(value);
+  }, []);
+
+  const fetchCoords = useCallback(async (): Promise<boolean> => {
+    try {
+      if (Platform.OS === "web" && typeof navigator !== "undefined" && navigator.geolocation) {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: false,
+            timeout: 10000,
+            maximumAge: 60000,
+          });
+        });
+        setCoords({ latitude: position.coords.latitude, longitude: position.coords.longitude });
+        return true;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [setCoords]);
 
   useEffect(() => {
     if (Platform.OS === "web") return;
@@ -17,23 +45,14 @@ export function useLocation() {
       setCanAskAgain(perm.canAskAgain);
       if (perm.granted) fetchCoords();
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetchCoords = useCallback(async () => {
-    try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setCoords({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-    } catch {
-      // ignore
-    }
-  }, []);
+  }, [fetchCoords]);
 
   // Returns one of: 'granted' | 'denied' | 'blocked'
   const request = useCallback(async (): Promise<"granted" | "denied" | "blocked"> => {
     if (Platform.OS === "web") {
-      setStatus("granted");
-      return "granted";
+      const granted = await fetchCoords();
+      setStatus(granted ? "granted" : "denied");
+      return granted ? "granted" : "denied";
     }
     const current = await Location.getForegroundPermissionsAsync();
     if (current.granted) {

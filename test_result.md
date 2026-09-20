@@ -102,13 +102,13 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Kerjo (Bumble-style local work matching, Indonesia). This session: (P0) fix Matches avatar migration so legacy pravatar face URLs never leak (must show category icons). Then new features: Undo swipe, Job Post shortcut on Hiring screen, Chat unread badge, Online status in chat, Applicant list for employers, Phone calls in chat, Candidate screening questions, and Scheduling interview/first-day time slots."
+user_problem_statement: "kerjo.id (Bumble-style local work matching, Indonesia). This session: (P0) fix Matches avatar migration so legacy pravatar face URLs never leak (must show category icons). Then new features: Undo swipe, Job Post shortcut on Hiring screen, Chat unread badge, Online status in chat, Applicant list for employers, Phone calls in chat, Candidate screening questions, and Scheduling interview/first-day time slots."
 
 backend:
   - task: "P0 Matches avatar migration + clean_avatar hardening"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/helpers.go"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
@@ -119,7 +119,7 @@ backend:
   - task: "Undo swipe endpoint POST /api/swipe/undo"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_matches.go"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
@@ -130,7 +130,7 @@ backend:
   - task: "Unread count (per-match + total) and mark-read"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_matches.go"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
@@ -141,7 +141,7 @@ backend:
   - task: "Applicants list GET /api/applicants"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_matches.go"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
@@ -152,7 +152,7 @@ backend:
   - task: "Online status + phone in GET /api/matches/{id}"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_matches.go"
     stuck_count: 0
     priority: "medium"
     needs_retesting: false
@@ -163,7 +163,7 @@ backend:
   - task: "Scheduling: create + respond schedule messages"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_matches.go"
     stuck_count: 0
     priority: "medium"
     needs_retesting: false
@@ -174,7 +174,7 @@ backend:
   - task: "Screening answers stored on swipe; questions on job"
     implemented: true
     working: true
-    file: "backend/server.py"
+    file: "backend/handlers_browse.go"
     stuck_count: 0
     priority: "medium"
     needs_retesting: false

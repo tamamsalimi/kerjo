@@ -1,0 +1,144 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kerjo
+      POSTGRES_PASSWORD: kerjo_local
+      POSTGRES_DB: kerjo
+    ports:
+      - "5433:5432"
+    volumes:
+      - kerjo_postgres_data_v2:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kerjo -d kerjo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build:
+      context: ./backend
+    command: ["kerjo-migrate", "up"]
+    environment:
+      DATABASE_URL: postgres://kerjo:kerjo_local@postgres:5432/kerjo?sslmode=disable
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgres://kerjo:kerjo_local@postgres:5432/kerjo?sslmode=disable
+      PORT: "8000"
+      GOOGLE_CLIENT_IDS: ${GOOGLE_CLIENT_IDS:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8081}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      STORAGE_DIR: /data/uploads
+    ports:
+      - "8000:8000"
+    volumes:
+      - kerjo_upload_data:/data/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  cms-backend:
+    build:
+      context: ./cms-backend
+    restart: unless-stopped
+    environment:
+      CMS_APP_ENV: ${CMS_APP_ENV:-development}
+      CMS_DATABASE_URL: postgres://kerjo:kerjo_local@postgres:5432/kerjo?sslmode=disable
+      CMS_PORT: "8001"
+      CMS_CORS_ALLOWED_ORIGINS: ${CMS_CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      CMS_SESSION_TTL: ${CMS_SESSION_TTL:-8h}
+      CMS_COOKIE_SECURE: ${CMS_COOKIE_SECURE:-false}
+      CMS_LOG_LEVEL: ${CMS_LOG_LEVEL:-info}
+      CMS_STORAGE_DIR: /data/uploads
+    ports:
+      - "8001:8001"
+    volumes:
+      - kerjo_upload_data:/data/uploads:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8001/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  cms-frontend:
+    build:
+      context: ./cms
+    restart: unless-stopped
+    ports:
+      - "5173:8080"
+    depends_on:
+      cms-backend:
+        condition: service_healthy
+
+  legacy-postgres:
+    profiles: ["migration"]
+    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kerjo
+      POSTGRES_PASSWORD: kerjo_local
+      POSTGRES_DB: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - kerjo_legacy_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kerjo -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ferretdb:
+    profiles: ["migration"]
+    image: ghcr.io/ferretdb/ferretdb:2.7.0
+    restart: unless-stopped
+    environment:
+      FERRETDB_POSTGRESQL_URL: postgres://kerjo:kerjo_local@legacy-postgres:5432/postgres
+    ports:
+      - "27017:27017"
+    depends_on:
+      legacy-postgres:
+        condition: service_healthy
+
+  migrate-legacy:
+    profiles: ["migration"]
+    build:
+      context: ./backend
+      target: legacy-migration
+    command: ["kerjo-migrate-legacy"]
+    environment:
+      DATABASE_URL: postgres://kerjo:kerjo_local@postgres:5432/kerjo?sslmode=disable
+      LEGACY_DOCUMENT_DB_URL: mongodb://kerjo:kerjo_local@ferretdb:27017/?authSource=postgres&directConnection=true
+      LEGACY_DB_NAME: kerjo
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ferretdb:
+        condition: service_started
+    restart: "no"
+
+volumes:
+  kerjo_postgres_data_v2:
+  kerjo_upload_data:
+  kerjo_legacy_postgres_data:
+    name: kerjo_kerjo_postgres_data

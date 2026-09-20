@@ -42,7 +42,7 @@ export function BottomSheet({
           },
         ]}
       >
-        <View style={styles.handle} />
+        <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
         {title ? (
           <View style={styles.header}>
             <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text>
@@ -59,7 +59,8 @@ export function BottomSheet({
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    inset: 0,
     backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
@@ -78,7 +79,6 @@ const styles = StyleSheet.create({
     width: 44,
     height: 5,
     borderRadius: radius.pill,
-    backgroundColor: "#D4D4D4",
     marginBottom: spacing.md,
   },
   header: {
@@ -87,5 +87,5 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: spacing.md,
   },
-  title: { fontFamily: fonts.medium, fontSize: 20 },
+  title: { fontFamily: fonts.semibold, fontSize: 20 },
 });

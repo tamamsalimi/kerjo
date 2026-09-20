@@ -1,15 +1,15 @@
 {
   "expo": {
     "name": "Kerjo",
-    "slug": "frontend",
+    "slug": "kerjo",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "kerjo",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.kerjalocal.eockwo",
+      "bundleIdentifier": "id.kerjo.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Tampilkan kerja dan pekerja terdekat dari lokasimu"
       }
@@ -19,7 +19,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#E62429"
       },
-      "package": "com.emergent.kerjalocal.eockwo",
+      "package": "id.kerjo.app",
       "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
     },
     "web": {

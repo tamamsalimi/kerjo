@@ -1,3 +1,9 @@
+import { Fredoka_600SemiBold } from "@expo-google-fonts/fredoka";
+import { Nunito_600SemiBold, Nunito_800ExtraBold } from "@expo-google-fonts/nunito";
+import {
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from "@expo-google-fonts/plus-jakarta-sans";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
@@ -10,8 +16,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { ToastProvider } from "@/src/components/toast";
-import { AuthProvider, useAuth } from "@/src/auth-context";
-import { queryClient } from "@/src/query-client";
+import { AuthProvider, useAuth } from "@/src/features/auth/auth-context";
+import { queryClient } from "@/src/services/query-client";
 import { useTheme } from "@/src/theme";
 
 LogBox.ignoreAllLogs(true);
@@ -38,7 +44,7 @@ function RootNavigator() {
       return;
     }
     if (first === "login" || first === undefined) {
-      router.replace(user.has_profile ? "/(tabs)" : "/onboarding");
+      router.replace("/(tabs)");
     }
   }, [user, loading, segments, router]);
 
@@ -49,6 +55,7 @@ function RootNavigator() {
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
       <Stack.Screen name="onboarding" />
+      <Stack.Screen name="verification" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="worker/[id]" options={{ presentation: "card" }} />
       <Stack.Screen name="chat/[id]" options={{ presentation: "card" }} />
@@ -61,7 +68,16 @@ export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     "PlusJakartaSans-Regular": require("../assets/fonts/PlusJakartaSans-Regular.ttf"),
     "PlusJakartaSans-Medium": require("../assets/fonts/PlusJakartaSans-Medium.ttf"),
+    "PlusJakartaSans-SemiBold": PlusJakartaSans_600SemiBold,
+    "PlusJakartaSans-Bold": PlusJakartaSans_700Bold,
+    "Fredoka-SemiBold": Fredoka_600SemiBold,
+    "Nunito-SemiBold": Nunito_600SemiBold,
+    "Nunito-ExtraBold": Nunito_800ExtraBold,
   });
+
+  useEffect(() => {
+    if (typeof document !== "undefined") document.title = "kerjo.id";
+  }, []);
 
   return (
     <ErrorBoundary>

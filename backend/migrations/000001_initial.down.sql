@@ -1,0 +1,13 @@
+DROP TABLE IF EXISTS message_schedules;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS match_reviewers;
+DROP TABLE IF EXISTS match_read_receipts;
+DROP TABLE IF EXISTS match_participants;
+DROP TABLE IF EXISTS reviews;
+DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS swipes;
+DROP TABLE IF EXISTS workers;
+DROP TABLE IF EXISTS jobs;
+DROP TABLE IF EXISTS profiles;
+DROP TABLE IF EXISTS user_sessions;
+DROP TABLE IF EXISTS users;

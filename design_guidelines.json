@@ -1,5 +1,5 @@
 {
-  "app_name": "Kerjo",
+  "app_name": "kerjo.id",
   "personality": "4 Tactile / Playful LIGHT",
   "personality_one_liner": "A warm, energetic, and highly accessible matching experience crossing the approachability of a dating app with the trust of a local job board.",
   "color": {
@@ -11,30 +11,38 @@
     "onSurfaceTertiary": "#333333",
     "surfaceInverse": "#1C1C1C",
     "onSurfaceInverse": "#FFFFFF",
-    "brand": "#E62429",
     "brandPrimary": "#E62429",
+    "brandDeep": "#B51218",
     "onBrandPrimary": "#FFFFFF",
     "brandSecondary": "#FFEBED",
     "onBrandSecondary": "#D31225",
     "brandTertiary": "#FFF0F2",
+    "brandSurfaceSubtle": "#FFF8F8",
     "onBrandTertiary": "#C00F21",
     "success": "#059669",
     "onSuccess": "#FFFFFF",
+    "successSurface": "#ECFDF5",
     "warning": "#EAB308",
     "onWarning": "#FFFFFF",
+    "warningSurface": "#FFFBEB",
+    "attention": "#D89B00",
+    "onAttention": "#FFFFFF",
     "error": "#DC2626",
     "onError": "#FFFFFF",
+    "errorSurface": "#FEF2F2",
     "info": "#0284C7",
     "onInfo": "#FFFFFF",
     "border": "#E5E5E5",
     "borderStrong": "#D4D4D4",
     "divider": "#F0F0F0",
-    "muted": "#737373",
-    "onBrand": "#FFFFFF"
+    "muted": "#737373"
   },
   "typography": {
     "displayFontFamily": "Plus Jakarta Sans",
     "textFontFamily": "Plus Jakarta Sans",
+    "wordmarkFontFamily": "Fredoka SemiBold",
+    "loginHeadlineFontFamily": "Fredoka SemiBold",
+    "loginTaglineFontFamily": "Nunito SemiBold",
     "scale": {
       "sm": 12,
       "base": 14,
@@ -56,17 +64,19 @@
   "radius_tokens": {
     "sm": 6,
     "md": 12,
+    "medium": 16,
     "lg": 24,
+    "hero": 28,
     "pill": 999
   },
   "shadow_tier": "2",
   "navigation": "bottom_tabs",
-  "icon_set": "Phosphor",
+  "icon_set": "Material Design Icons",
   "glassmorphism": {
     "enabled": "true",
     "do's": [
       "Use blur on the bottom tab bar where the swipe stack scrolls behind it.",
-      "Use blur on the top sticky mode toggle / filter chips if they overlay the card stack.",
+      "Use blur on the top sticky browse-context / filter chips if they overlay the card stack.",
       "Apply glassmorphism to Floating Action Buttons (Like/Pass) that sit over the swipe card."
     ],
     "dont's": [
@@ -96,7 +106,7 @@
         "empty": "N/A",
         "error": "Error toast with retry CTA"
       },
-      "layout": "Full-screen layout with an energetic hero image covering the top 50%. A white surface container slides up from the bottom containing the Kerjo logo, 'Temukan kerja terpercaya secepat swipe' tagline, and a prominent Google login CTA (pill-shaped, 56pt height). Safe area bottom applied."
+      "layout": "Responsive red-gradient hero with an organic cloud of 16 softly translucent, varied-size icons representing Indonesian job categories, followed by the Kerjo handshake mark with 'Kerjo' directly underneath. Avoid rigid grids and corporate symmetry. A rounded white surface continues the hierarchy with the static headline 'Biar kerja ketemu yang cocok' and the smaller secondary line 'Sesama warga, saling bantu.' The tagline enters once in a calm 1–2 second sequence: the first phrase fades naturally, a tiny connection accent appears, then the second phrase gently slides and fades in before remaining stable. Do not show a Kerjo icon beside the tagline. Follow with a simple Google login CTA and the free-for-workers-and-employers note."
     },
     {
       "name": "Swipe Stack (Home)",
@@ -106,7 +116,7 @@
         "empty": "Illustration of a relaxing scene + 'No more nearby options! Check back later.' + Refresh CTA",
         "error": "Readable network error + Retry CTA"
       },
-      "layout": "Top layer: Sticky header with 'Looking for Work / Hiring' pill toggle, followed by a horizontally scrolling row of filter chips (brandTertiary bg, onBrandTertiary text). Middle layer: Full-bleed portrait cards (radius lg 24px) utilizing 100% width minus lg padding. Each card has an image, overlaid with a 3-stop gradient scrim (transparent -> 20% surfaceInverse -> 70% surfaceInverse) at the bottom. Text at bottom includes name, role, verified badge (success), stars (warning), and prominent category icon. Bottom layer: Floating circular buttons for Reject (X) and Accept (Heart/Apply) placed in the thumb zone."
+      "layout": "Top layer: Compact three-way segmented filter (Semua, Pekerja, Lowongan) with equal-width options, followed by a short row containing three common category chips and Lainnya. Lainnya opens a bottom-sheet grid for the remaining categories. The filter bottom-sheet contains Tipe Kerja only; distance, payment, and experience come from listing/profile data, while location is controlled from the header icon. Semua interleaves job and worker cards while the other filters show one card type. In Lowongan, every authenticated user sees a contextual Pasang Kerja action; an owner-only Pelamar pill appears directly on their own job card. Middle layer: Full-bleed portrait cards (radius lg 24px) with a bottom gradient and an always-visible compact summary for distance, payment, and experience. On web, mouse-over or keyboard focus expands these three values into a labeled information panel without changing drag/swipe behavior. Bottom layer: Floating circular buttons for Reject (X) and Accept (Heart/Apply), plus a three-item navigation bar for Profil, Jelajah, and Chat."
     },
     {
       "name": "Post a Job",
@@ -116,7 +126,7 @@
         "empty": "N/A",
         "error": "Form validation errors displayed below fields in error color"
       },
-      "layout": "Single-column form. Labels positioned above inputs. Inputs use surfaceTertiary background with no borders. 'Post Job' CTA is pinned to the bottom inside KeyboardAvoidingView with generous touch targets (min 44pt)."
+      "layout": "Guided card-based single-column form shared with profile creation. Labels sit above controls. Inputs use surfaceTertiary with a subtle border and brandPrimary focus state. Section icons, progress, selected states, and the sticky CTA use Kerjo red; cards stay white."
     },
     {
       "name": "Match Celebration",
@@ -126,7 +136,7 @@
         "empty": "N/A",
         "error": "N/A"
       },
-      "layout": "Full-screen absolute overlay with surfaceInverse background (90% opacity). Central 'handshake success' image with 'It's a Match! 🎉' display typography. Two stacked buttons: 'Message Now' (brandPrimary) and 'Keep Swiping' (outlined/muted)."
+      "layout": "Full-screen absolute overlay with surfaceInverse background (90% opacity). Central red/white category graphic with friendly 'Cocok!' display typography. Two stacked buttons: 'Kirim Pesan' (brandPrimary) and 'Lanjut Swipe' (outlined/muted)."
     },
     {
       "name": "Chat & Review",
@@ -146,7 +156,7 @@
         "empty": "N/A",
         "error": "Error fetching profile + Retry"
       },
-      "layout": "Scroll view. Top section: cover banner (real image) with avatar overlapping the bottom edge. High contrast hierarchy for trust score, number of completed jobs, and verified badges. Below: Stacked review cards with surfaceSecondary background, md radius, and muted quote text."
+      "layout": "Static branded hero with centered Kerjo lockup, profile photo, greeting, identity details, verification status, and low-opacity red/pink work icons. One independent vertical scroller below contains role selection, completeness, profile details, activity, history, reviews, and logout. Use only Kerjo red/pink/white chrome; green is reserved for verified success."
     }
   ],
   "images": {
@@ -171,7 +181,8 @@
     "tab_press": "selection"
   },
   "instructions_to_main_agent": [
-    "MAX FONT WEIGHT IS 500. DO NOT USE BOLD, 600, 700, 800, or 900. Use sizing for hierarchy, not weight.",
+    "Use Plus Jakarta Sans throughout UI: Regular/Medium for body and SemiBold/Bold for page and section hierarchy. Reserve Fredoka SemiBold for the Kerjo wordmark and marketing headlines.",
+    "All product chrome uses the canonical brandPrimary, brandSecondary, brandTertiary, white/neutral surfaces, and semantic colors only. Category icons use red/pink/white rather than independent rainbow palettes.",
     "Implement the full-bleed portrait swipe card with a 3-stop vertical gradient scrim (transparent -> 20% surfaceInverse -> 70% surfaceInverse) at the bottom to ensure text readability over varying photos.",
     "Place the action buttons (Reject/Accept) as floating elements layered on top of the swipe card near the bottom, utilizing glassmorphism.",
     "Always provide loading, empty, and error states for all screens. Set flex: 1 and use a centered layout for these states.",

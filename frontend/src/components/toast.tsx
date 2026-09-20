@@ -50,7 +50,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
           pointerEvents="none"
           style={[styles.wrap, { top: insets.top + spacing.sm, opacity }]}
         >
-          <View style={[styles.toast, { backgroundColor: bg }]} testID="toast">
+          <View style={[styles.toast, { backgroundColor: bg, shadowColor: colors.brandPrimary }]} testID="toast">
             <Text style={[styles.text, { color: fg }]}>{toast.message}</Text>
           </View>
         </Animated.View>
@@ -73,7 +73,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     borderRadius: radius.md,
-    shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
