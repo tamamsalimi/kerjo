@@ -12,6 +12,10 @@ export function fetchProfileHistory() {
   return request<any>("/profile/history");
 }
 
+export function fetchWorker(id: string) {
+  return request<any>(`/workers/${id}`);
+}
+
 export async function uploadProfilePhoto(uri: string): Promise<string> {
   const data = await uploadImage(uri, "/profile/photos");
   return mediaUrl(data.url);

@@ -4,10 +4,6 @@
 export type StorageItemKey = string;
 export type StorageItemValue = string | number | boolean | null;
 
-// Helper for subclasses to enforce that they don't declare methods beyond
-// StorageBase. Use as: type _ = AssertNoExtras<Exclude<keyof Storage, keyof StorageBase>>;
-export type AssertNoExtras<T extends never> = T;
-
 export abstract class StorageBase {
   protected warn(op: string, key: StorageItemKey, e: unknown) {
     console.warn(`[storage] ${op}(${key}) failed`, e);

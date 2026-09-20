@@ -27,7 +27,7 @@ export default function Applicants() {
     router.push(`/chat/${matchID}`);
   }
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["applicants"],
     queryFn: fetchApplicants,
     refetchInterval: 6000,

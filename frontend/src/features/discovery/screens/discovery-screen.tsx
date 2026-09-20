@@ -30,7 +30,6 @@ import {
 } from "@/src/constants";
 import { fetchJob, fetchJobs, fetchWorkers } from "@/src/features/discovery/services/discovery-service";
 import { JobCard, WorkerCard } from "@/src/features/discovery/components/cards";
-import { MatchOverlay } from "@/src/features/discovery/components/match-overlay";
 import {
   SwipeDeck,
   type SwipeDeckRef,
@@ -40,6 +39,7 @@ import {
   postSwipe,
   undoSwipe,
 } from "@/src/features/matching/services/matching-service";
+import { MatchOverlay } from "@/src/features/matching/components/match-overlay";
 import { useLocation } from "@/src/hooks/use-location";
 import { ApiError } from "@/src/services/http-client";
 import { usesNativeTabs } from "@/src/utils/navigation";

@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon, CategoryAvatar, RatingStars, TrustBadge } from "@/src/components/ui";
 import { categoryIcon, formatPay } from "@/src/constants";
-import { fetchWorker } from "@/src/features/discovery/services/discovery-service";
+import { fetchWorker } from "@/src/features/profile/services/profile-service";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function WorkerProfile() {

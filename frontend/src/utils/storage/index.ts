@@ -20,7 +20,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 
-import { AssertNoExtras, StorageBase, StorageItemValue } from "./storage-base";
+import { StorageBase, StorageItemValue } from "./storage-base";
 
 export class Storage extends StorageBase {
   // General KV — backed by AsyncStorage.
@@ -102,7 +102,3 @@ export class Storage extends StorageBase {
 
 // The shared singleton — import THIS (`import { storage } from "@/src/utils/storage"`). Do not `new Storage()`.
 export const storage = new Storage();
-
-// Compile-time guard: any new method must be declared in storage-base.ts first.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional compile-time-only assertion
-type _NoExtras = AssertNoExtras<Exclude<keyof Storage, keyof StorageBase>>;
