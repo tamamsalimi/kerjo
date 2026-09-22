@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, ScrollView, Switch, Text, View } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -24,7 +24,7 @@ import {
   type GalleryPhoto,
 } from "@/src/components/photo-picker";
 import { useToast } from "@/src/components/toast";
-import { CATEGORIES, EXPERIENCE_LABELS } from "@/src/constants";
+import { CATEGORIES, EDUCATION_LEVELS, EXPERIENCE_LABELS } from "@/src/constants";
 import {
   getProfile,
   saveProfile,
@@ -32,6 +32,7 @@ import {
 } from "@/src/features/profile/services/profile-service";
 import { useLocation } from "@/src/hooks/use-location";
 import { useImagePicker } from "@/src/hooks/use-image-picker";
+import { ApiError, mediaUrl } from "@/src/services/http-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function Onboarding() {
@@ -51,25 +52,35 @@ export default function Onboarding() {
   });
 
   const [name, setName] = useState(user?.name ?? "");
+  const [employerType, setEmployerType] = useState("pribadi");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [experience, setExperience] = useState(EXPERIENCE_LABELS[1]);
   const [availability, setAvailability] = useState("");
   const [rate, setRate] = useState("");
   const [phone, setPhone] = useState("");
+  const [allowDirectCall, setAllowDirectCall] = useState(false);
+  const [lastEducation, setLastEducation] = useState("");
   const [bio, setBio] = useState("");
   const [photos, setPhotos] = useState<GalleryPhoto[]>([]);
   const [uploading, setUploading] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [experienceOpen, setExperienceOpen] = useState(false);
+  const [educationOpen, setEducationOpen] = useState(false);
+  const educationOptions = lastEducation && !EDUCATION_LEVELS.includes(lastEducation)
+    ? [lastEducation, ...EDUCATION_LEVELS]
+    : EDUCATION_LEVELS;
 
   useEffect(() => {
     if (existing) {
       setName(existing.name ?? name);
+      setEmployerType(existing.employer_type ?? "pribadi");
       setCategory(existing.category ?? CATEGORIES[0]);
       setExperience(existing.experience_label ?? EXPERIENCE_LABELS[1]);
       setAvailability(existing.availability ?? "");
       setRate(existing.rate ?? "");
       setPhone(existing.phone ?? "");
+      setAllowDirectCall(Boolean(existing.allow_direct_call));
+      setLastEducation(existing.last_education ?? "");
       setBio(existing.bio ?? "");
       const urls = Array.isArray(existing.photo_urls) && existing.photo_urls.length
         ? existing.photo_urls
@@ -78,7 +89,7 @@ export default function Onboarding() {
           : [];
       setPhotos(urls.slice(0, 5).map((url: string, index: number) => ({
         id: `existing-${index}-${url}`,
-        uri: url,
+        uri: mediaUrl(url),
         remoteUrl: url,
       })));
     }
@@ -98,11 +109,13 @@ export default function Onboarding() {
       const url = await uploadProfilePhoto(uri);
       setPhotos((current) => [
         ...current,
-        { id: `photo-${Date.now()}-${current.length}`, uri: url, remoteUrl: url },
+        { id: `photo-${Date.now()}-${current.length}`, uri: mediaUrl(url), remoteUrl: url },
       ].slice(0, 5));
       toast("Foto terunggah 📸", "success");
-    } catch {
-      toast("Gagal mengunggah foto", "error");
+    } catch (error) {
+      toast(error instanceof ApiError && error.status === 413
+        ? "Foto terlalu besar. Coba pilih ulang atau potong fotonya."
+        : "Gagal mengunggah foto. Coba pilih fotonya lagi.", "error");
     } finally {
       setUploading(false);
     }
@@ -112,6 +125,8 @@ export default function Onboarding() {
     const wasEditing = Boolean(user?.has_profile);
     await refreshUser();
     queryClient.invalidateQueries({ queryKey: ["profile"] });
+    queryClient.invalidateQueries({ queryKey: ["profile-history"] });
+    queryClient.invalidateQueries({ queryKey: ["browse-access"] });
     if (wasEditing && router.canGoBack()) router.back();
     else router.replace("/(tabs)");
   }
@@ -134,14 +149,21 @@ export default function Onboarding() {
       toast("Tambahkan foto utama dulu ya", "error");
       return;
     }
+    if (allowDirectCall && !phone.trim()) {
+      toast("Isi nomor telepon dulu untuk izinkan telepon langsung", "error");
+      return;
+    }
     const photoUrls = photos.map((photo) => photo.remoteUrl || photo.uri);
     mutation.mutate({
       name: name.trim(),
+      employer_type: employerType,
       category,
       experience_label: experience,
       availability: availability.trim(),
       rate: rate.trim(),
       phone: phone.trim(),
+      allow_direct_call: Boolean(phone.trim()) && allowDirectCall,
+      last_education: lastEducation.trim(),
       bio: bio.trim(),
       photo_url: photoUrls[0],
       photo_urls: photoUrls,
@@ -195,10 +217,7 @@ export default function Onboarding() {
               testID="ob-name"
             />
           </FormField>
-          <FormField
-            label="Nomor Telepon (opsional)"
-            helper="Dipakai untuk menghubungi kamu setelah cocok."
-          >
+          <FormField label="Nomor Telepon (opsional)">
             <FormInput
               value={phone}
               onChangeText={setPhone}
@@ -206,6 +225,31 @@ export default function Onboarding() {
               keyboardType="phone-pad"
               placeholderTextColor={colors.muted}
               testID="ob-phone"
+            />
+            <View style={styles.directCallRow}>
+              <View style={styles.directCallCopy}>
+                <Text style={styles.directCallTitle}>Izinkan Telepon Langsung</Text>
+                <Text style={styles.directCallHelper}>
+                  {allowDirectCall && phone.trim()
+                    ? "Pemberi kerja yang cocok bisa meneleponmu."
+                    : "Nomormu tetap tersembunyi dari tombol telepon."}
+                </Text>
+              </View>
+              <Switch
+                value={Boolean(phone.trim()) && allowDirectCall}
+                onValueChange={setAllowDirectCall}
+                disabled={!phone.trim()}
+                trackColor={{ false: colors.border, true: colors.brandPrimary }}
+                thumbColor={colors.surface}
+                testID="ob-allow-direct-call"
+              />
+            </View>
+          </FormField>
+          <FormField label="Pendidikan Terakhir (opsional)">
+            <CompactSelect
+              value={lastEducation || "Tidak dicantumkan"}
+              onPress={() => setEducationOpen(true)}
+              testID="ob-last-education"
             />
           </FormField>
           <FormField label="Bio Singkat" last>
@@ -305,6 +349,42 @@ export default function Onboarding() {
           })}
         </View>
       </BottomSheet>
+
+      <BottomSheet
+        visible={educationOpen}
+        onClose={() => setEducationOpen(false)}
+        title="Pilih Pendidikan Terakhir"
+        testID="education-sheet"
+      >
+        <ScrollView
+          style={styles.educationScroll}
+          contentContainerStyle={styles.optionList}
+          showsVerticalScrollIndicator={false}
+        >
+          {["Tidak dicantumkan", ...educationOptions].map((option) => {
+            const value = option === "Tidak dicantumkan" ? "" : option;
+            const active = lastEducation === value;
+            return (
+              <Pressable
+                key={option}
+                style={({ pressed }) => [
+                  styles.optionRow,
+                  active && styles.optionRowActive,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => {
+                  setLastEducation(value);
+                  setEducationOpen(false);
+                }}
+                testID={`education-option-${option}`}
+              >
+                <Text style={[styles.optionText, active && styles.optionTextActive]}>{option}</Text>
+                {active ? <Icon name="check" size={20} color={colors.brandPrimary} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </BottomSheet>
     </View>
   );
 }
@@ -350,6 +430,26 @@ const useStyles = makeStyles((colors) => ({
     paddingBottom: spacing["2xl"],
   },
   verificationRow: { marginBottom: spacing.md },
+  educationScroll: { maxHeight: 420 },
+  directCallRow: {
+    minHeight: 52,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  directCallCopy: { flex: 1, paddingVertical: spacing.sm },
+  directCallTitle: { fontFamily: fonts.semibold, fontSize: 13, color: colors.onSurface },
+  directCallHelper: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.muted,
+    marginTop: 2,
+  },
   optionList: { gap: spacing.xs, paddingBottom: spacing.sm },
   optionRow: {
     minHeight: 52,

@@ -129,6 +129,48 @@ data and start clean:
 docker compose down -v
 ```
 
+### 6. Testing-only access from another device
+
+This is for local testing only. It does not change production OAuth, CMS,
+Postgres exposure, or Metro. `APP_ENV` stays `development`.
+
+Phones cannot use `http://192.168.x.x:8081` for Google sign-in because WebCrypto
+requires localhost or HTTPS. The testing stack therefore uses one HTTPS origin
+for both the Expo web app and `/api`.
+
+1. Copy `dev/multi-device.env.example` to `dev/multi-device.env`.
+2. Set `NGROK_DOMAIN` to your reserved ngrok hostname, without `https://`.
+3. Keep `NGROK_AUTHTOKEN` in that local file if the CLI is not already
+   authenticated. Do not commit it.
+4. Add these values to a **development / testing** Google OAuth Web client only:
+
+   - Authorized JavaScript origin: `https://<your-ngrok-domain>`
+   - Authorized redirect URI: `https://<your-ngrok-domain>/`
+
+   Leave the existing localhost origin (`http://localhost:8081`) in place for
+   laptop testing. Do not add these hosts to a production OAuth client.
+
+5. Start everything with one command:
+
+```sh
+chmod +x dev/start-multi-device.sh dev/stop-multi-device.sh
+./dev/start-multi-device.sh
+```
+
+The launcher starts PostgreSQL, migrations, the API, the local same-origin
+gateway on `http://localhost:8090`, Expo on `8081`, and ngrok to the gateway.
+It sets `EXPO_PUBLIC_BACKEND_URL=https://<your-ngrok-domain>` for that session
+only so phones call `/api` on the same HTTPS origin.
+
+Open `https://<your-ngrok-domain>` on the phone. CMS stays on
+`http://localhost:5173` and is not published through the tunnel.
+
+Stop everything with:
+
+```sh
+./dev/stop-multi-device.sh
+```
+
 ## Useful development commands
 
 Rebuild and restart the backend:

@@ -1,8 +1,9 @@
-import { useEffect, useRef, type PropsWithChildren } from "react";
-import { Animated, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef, type PropsWithChildren, type ReactNode } from "react";
+import { Animated, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Icon } from "@/src/components/ui";
+import { APP_MAX_WIDTH } from "@/src/layout/phone-frame";
 import { fonts, radius, spacing, useTheme } from "@/src/theme";
 
 export function BottomSheet({
@@ -10,11 +11,15 @@ export function BottomSheet({
   onClose,
   title,
   children,
+  footer,
+  scrollEnabled = true,
   testID,
 }: PropsWithChildren<{
   visible: boolean;
   onClose: () => void;
   title?: string;
+  footer?: ReactNode;
+  scrollEnabled?: boolean;
   testID?: string;
 }>) {
   const insets = useSafeAreaInsets();
@@ -31,43 +36,61 @@ export function BottomSheet({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} testID={testID}>
-      <Pressable style={styles.backdrop} onPress={onClose} testID="sheet-backdrop" />
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            backgroundColor: colors.surface,
-            paddingBottom: insets.bottom + spacing.lg,
-            transform: [{ translateY }],
-          },
-        ]}
-      >
-        <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
-        {title ? (
-          <View style={styles.header}>
-            <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text>
-            <Pressable onPress={onClose} hitSlop={12} testID="sheet-close">
-              <Icon name="close" size={22} color={colors.muted} />
-            </Pressable>
-          </View>
-        ) : null}
-        {children}
-      </Animated.View>
+      <View style={styles.frame} pointerEvents="box-none">
+        <Pressable style={styles.backdrop} onPress={onClose} testID="sheet-backdrop" />
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              backgroundColor: colors.surface,
+              paddingBottom: insets.bottom + spacing.lg,
+              transform: [{ translateY }],
+            },
+          ]}
+        >
+          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+          {title ? (
+            <View style={styles.header}>
+              <Text style={[styles.title, { color: colors.onSurface }]} numberOfLines={2}>{title}</Text>
+              <Pressable onPress={onClose} hitSlop={12} testID="sheet-close">
+                <Icon name="close" size={22} color={colors.muted} />
+              </Pressable>
+            </View>
+          ) : null}
+          {Platform.OS === "web" ? (
+            <View style={[styles.body, styles.webBody]}>{children}</View>
+          ) : (
+            <ScrollView
+              style={styles.body}
+              contentContainerStyle={styles.bodyContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              scrollEnabled={scrollEnabled}
+            >
+              {children}
+            </ScrollView>
+          )}
+          {footer ? <View style={styles.footer}>{footer}</View> : null}
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  frame: {
+    flex: 1,
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
   backdrop: {
-    position: "absolute",
-    inset: 0,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.45)",
   },
   sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
+    zIndex: 1,
+    width: "100%",
+    maxWidth: APP_MAX_WIDTH,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     paddingHorizontal: spacing.xl,
@@ -85,7 +108,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: spacing.md,
     marginBottom: spacing.md,
   },
-  title: { fontFamily: fonts.semibold, fontSize: 20 },
+  title: { flex: 1, fontFamily: fonts.bold, fontSize: 22, letterSpacing: -0.4 },
+  body: { flexGrow: 0 },
+  bodyContent: { paddingBottom: spacing.sm },
+  webBody: {
+    maxHeight: 520,
+    overflow: "auto",
+    paddingBottom: spacing.sm,
+  },
+  footer: {
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "#F0F0F0",
+  },
 });

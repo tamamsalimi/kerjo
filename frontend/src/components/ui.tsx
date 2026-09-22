@@ -7,6 +7,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { categoryIcon } from "@/src/constants";
+import { mediaUrl } from "@/src/services/http-client";
 import { controlSize, fonts, makeStyles, radius, softShadow, spacing, typeScale, useTheme } from "@/src/theme";
 
 // Default avatar: category icon in a colored circular badge; a photo replaces it when present.
@@ -27,7 +28,7 @@ export function CategoryAvatar({
   if (photo) {
     return (
       <Image
-        source={{ uri: photo }}
+        source={{ uri: mediaUrl(photo) }}
         style={[{ width: size, height: size, borderRadius: size / 2 }, style]}
         contentFit="cover"
         transition={150}
@@ -422,7 +423,9 @@ const useStyles = makeStyles((colors) => ({
   },
   chip: {
     height: 36,
+    alignSelf: "flex-start",
     flexShrink: 0,
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -434,7 +437,7 @@ const useStyles = makeStyles((colors) => ({
   chipActive: { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary },
   chipInactive: { backgroundColor: colors.surfaceTertiary },
   chipOutlined: { backgroundColor: colors.surface, borderColor: colors.brandPrimary },
-  chipText: { fontFamily: fonts.medium, fontSize: 13 },
+  chipText: { flexShrink: 1, fontFamily: fonts.medium, fontSize: 13 },
   brandLockup: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   brandMark: {
     width: 36,

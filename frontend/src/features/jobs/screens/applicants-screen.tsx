@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { ActivityIndicator, FlatList, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -17,6 +17,7 @@ export default function Applicants() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { jobId } = useLocalSearchParams<{ jobId?: string }>();
 
   function openChat(matchID: string) {
     if (user?.verification_status !== "approved") {
@@ -34,7 +35,8 @@ export default function Applicants() {
   });
 
   const acceptMut = useMutation({
-    mutationFn: (workerId: string) => postSwipe("worker", workerId, "right"),
+    mutationFn: ({ workerId, jobId }: { workerId: string; jobId?: string }) =>
+      postSwipe("worker", workerId, "right", undefined, jobId),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["applicants"] });
       queryClient.invalidateQueries({ queryKey: ["matches"] });
@@ -48,7 +50,7 @@ export default function Applicants() {
     onError: () => toast("Gagal memproses", "error"),
   });
 
-  const applicants = data ?? [];
+  const applicants = (data ?? []).filter((item: any) => !jobId || item.applied_job_id === jobId);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]} testID="applicants-screen">
@@ -75,7 +77,7 @@ export default function Applicants() {
       ) : (
         <FlatList
           data={applicants}
-          keyExtractor={(a) => a.id}
+          keyExtractor={(a) => `${a.id}:${a.applied_job_id}`}
           contentContainerStyle={{ padding: spacing.lg, paddingBottom: insets.bottom + spacing.xl, gap: spacing.md }}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
@@ -131,8 +133,8 @@ export default function Applicants() {
                 <PrimaryButton
                   label="Terima & Cocokkan"
                   icon="hand-heart"
-                  loading={acceptMut.isPending && acceptMut.variables === item.id}
-                  onPress={() => acceptMut.mutate(item.id)}
+                  loading={acceptMut.isPending && acceptMut.variables?.workerId === item.id && acceptMut.variables?.jobId === item.applied_job_id}
+                  onPress={() => acceptMut.mutate({ workerId: item.id, jobId: item.applied_job_id })}
                   style={{ height: 44, marginTop: spacing.sm }}
                   testID={`accept-${item.id}`}
                 />

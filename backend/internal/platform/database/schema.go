@@ -50,12 +50,15 @@ type Profile struct {
 	Name            string
 	Category        string
 	ExperienceLabel string
+	LastEducation   string
 	Availability    string
 	Bio             string
 	Rate            string
 	Phone           string
+	AllowDirectCall bool
 	PhotoURL        string
 	PhotoURLs       []string `gorm:"serializer:json;type:jsonb"`
+	EmployerType    string
 	Latitude        *float64
 	Longitude       *float64
 	CreatedAt       time.Time
@@ -68,6 +71,7 @@ type Job struct {
 	ID                 string `gorm:"primaryKey;size:64"`
 	OwnerUserID        *string
 	Business           string
+	EmployerType       string
 	Title              string
 	Role               string
 	Category           string
@@ -79,7 +83,8 @@ type Job struct {
 	ExperienceBucket   string
 	Description        string
 	Phone              string
-	PhotoURLs          []string `gorm:"serializer:json;type:jsonb"`
+	AllowDirectCall    bool
+	PhotoURLs          []string `gorm:"serializer:json;type:jsonb;not null;default:[]"`
 	ScreeningQuestions []string `gorm:"serializer:json;type:jsonb"`
 	WorkersNeeded      int
 	Latitude           *float64
@@ -99,6 +104,7 @@ type Worker struct {
 	Category         string
 	Role             string
 	ExperienceLabel  string
+	LastEducation    string
 	ExperienceYears  int
 	ExperienceBucket string
 	DistanceKM       float64
@@ -147,30 +153,32 @@ type Swipe struct {
 func (Swipe) TableName() string { return "swipes" }
 
 type Match struct {
-	ID             string `gorm:"primaryKey;size:64"`
-	Kind           string
-	UserID         *string
-	EntityType     string
-	EntityID       string
-	Title          string
-	Subtitle       string
-	Image          string
-	Category       string
-	WorkerUserID   *string
-	EmployerUserID *string
-	JobID          *string
-	WorkerName     string
-	WorkerCategory string
-	WorkerAvatar   string
-	WorkerPhone    string
-	JobTitle       string
-	JobBusiness    string
-	JobCategory    string
-	JobPhone       string
-	JobDone        bool
-	Reviewed       bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                    string `gorm:"primaryKey;size:64"`
+	Kind                  string
+	UserID                *string
+	EntityType            string
+	EntityID              string
+	Title                 string
+	Subtitle              string
+	Image                 string
+	Category              string
+	WorkerUserID          *string
+	EmployerUserID        *string
+	JobID                 *string
+	WorkerName            string
+	WorkerCategory        string
+	WorkerAvatar          string
+	WorkerPhone           string
+	WorkerAllowDirectCall bool
+	JobTitle              string
+	JobBusiness           string
+	JobCategory           string
+	JobPhone              string
+	JobAllowDirectCall    bool
+	JobDone               bool
+	Reviewed              bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 func (Match) TableName() string { return "matches" }

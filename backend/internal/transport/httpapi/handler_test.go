@@ -56,11 +56,17 @@ func (fakeMarketplaceRepository) ListWorkers(context.Context, string, marketplac
 func (fakeMarketplaceRepository) Job(context.Context, string) (marketplacedomain.Job, error) {
 	return marketplacedomain.Job{}, nil
 }
+func (fakeMarketplaceRepository) OwnedJob(_ context.Context, _, jobID string) (marketplacedomain.Job, error) {
+	return marketplacedomain.Job{ID: jobID}, nil
+}
 func (fakeMarketplaceRepository) Worker(context.Context, string) (marketplacedomain.Worker, error) {
 	return marketplacedomain.Worker{}, nil
 }
 func (fakeMarketplaceRepository) CreateJob(context.Context, string, marketplacedomain.JobInput) (marketplacedomain.Job, error) {
 	return marketplacedomain.Job{}, nil
+}
+func (fakeMarketplaceRepository) UpdateJob(_ context.Context, _, jobID string, input marketplacedomain.JobInput) (marketplacedomain.Job, error) {
+	return marketplacedomain.Job{ID: jobID, Title: input.Title, Business: input.Business}, nil
 }
 func (fakeMarketplaceRepository) AddJobPhoto(context.Context, string, string, string) (marketplacedomain.Job, error) {
 	return marketplacedomain.Job{}, nil
@@ -116,7 +122,7 @@ func TestAuthenticatedUserCanBrowseBothCardTypes(t *testing.T) {
 		Marketplace: marketplaceapp.New(fakeMarketplaceRepository{}),
 		Logger:      slog.Default(),
 	}).Routes()
-	for _, path := range []string{"/api/jobs", "/api/workers"} {
+	for _, path := range []string{"/api/browse/access", "/api/jobs", "/api/workers"} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Header.Set("Authorization", "Bearer valid-token")
 		response := httptest.NewRecorder()
@@ -124,6 +130,26 @@ func TestAuthenticatedUserCanBrowseBothCardTypes(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Errorf("GET %s status = %d; want 200; body=%s", path, response.Code, response.Body)
 		}
+	}
+}
+
+func TestAuthenticatedOwnerCanUpdateJob(t *testing.T) {
+	handler := New(Dependencies{
+		Identity:    identityapp.New(fakeIdentityRepository{}),
+		Marketplace: marketplaceapp.New(fakeMarketplaceRepository{}),
+		Logger:      slog.Default(),
+	}).Routes()
+	body := `{"business":"Warung Baru","title":"Kasir","category":"Retail / Toko","pay_amount":150000,"pay_unit":"/hari","job_type":"Harian","min_experience_label":"Baru","workers_needed":1,"photo_urls":[]}`
+	request := httptest.NewRequest(http.MethodPut, "/api/jobs/job_1", strings.NewReader(body))
+	request.Header.Set("Authorization", "Bearer valid-token")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("PUT /api/jobs/job_1 status = %d; want 200; body=%s", response.Code, response.Body)
+	}
+	if !strings.Contains(response.Body.String(), `"title":"Kasir"`) {
+		t.Fatalf("updated response does not contain the title: %s", response.Body)
 	}
 }
 

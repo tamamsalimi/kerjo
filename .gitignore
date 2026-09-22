@@ -87,6 +87,11 @@ android-sdk/
 .env.*
 *.env
 !.env.example
+!dev/multi-device.env.example
+dev/multi-device.env
+dev/.multi-device.pids
+dev/expo-web.log
+dev/ngrok.log
 credentials.json
 *.key
 .credentials

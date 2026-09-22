@@ -1,6 +1,13 @@
 import { buildQueryString, request } from "@/src/services/http-client";
 import type { Coordinates, Filters } from "@/src/types/filters";
 
+export function fetchBrowseAccess() {
+  return request<{
+    can_browse_jobs: boolean;
+    can_browse_workers: boolean;
+  }>("/browse/access");
+}
+
 export function fetchJobs(filters: Filters, coordinates?: Coordinates | null) {
   return request<any[]>(`/jobs${buildQueryString({
     ...filters,

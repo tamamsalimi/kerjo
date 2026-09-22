@@ -47,26 +47,39 @@ func (r *Repository) SaveProfile(ctx context.Context, profile domain.Profile) (d
 		Name:            profile.Name,
 		Category:        profile.Category,
 		ExperienceLabel: profile.ExperienceLabel,
+		LastEducation:   profile.LastEducation,
 		Availability:    profile.Availability,
 		Bio:             profile.Bio,
 		Rate:            profile.Rate,
 		Phone:           profile.Phone,
+		AllowDirectCall: profile.AllowDirectCall,
 		PhotoURL:        profile.PhotoURL,
 		PhotoURLs:       profile.PhotoURLs,
+		EmployerType:    profile.EmployerType,
 		Latitude:        profile.Latitude,
 		Longitude:       profile.Longitude,
 	}
 	updateColumns := []string{
-		"name", "category", "experience_label", "availability", "bio",
-		"rate", "phone", "photo_url", "photo_urls", "updated_at",
+		"name", "category", "experience_label", "last_education", "availability", "bio",
+		"rate", "phone", "allow_direct_call", "photo_url", "photo_urls", "employer_type", "updated_at",
 	}
 	if profile.Latitude != nil && profile.Longitude != nil {
 		updateColumns = append(updateColumns, "latitude", "longitude")
 	}
-	err := r.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "user_id"}},
-		DoUpdates: clause.AssignmentColumns(updateColumns),
-	}).Create(&model).Error
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "user_id"}},
+			DoUpdates: clause.AssignmentColumns(updateColumns),
+		}).Create(&model).Error; err != nil {
+			return err
+		}
+		return tx.Model(&database.Match{}).
+			Where("kind = ? AND worker_user_id = ?", "real", profile.UserID).
+			Updates(map[string]any{
+				"worker_phone":              storedDirectCallPhone(profile.Phone, profile.AllowDirectCall),
+				"worker_allow_direct_call": profile.AllowDirectCall,
+			}).Error
+	})
 	if err != nil {
 		return domain.Profile{}, err
 	}
@@ -80,6 +93,11 @@ func (r *Repository) ListJobs(ctx context.Context, userID string, filters domain
 		Where(`NOT EXISTS (
 			SELECT 1 FROM swipes
 			WHERE swipes.swiper_user_id = ? AND swipes.target_type = 'job' AND swipes.target_id = jobs.id
+		)`, userID).
+		Where(`NOT EXISTS (
+			SELECT 1 FROM matches
+			WHERE matches.kind = 'real' AND matches.job_done = false
+			  AND matches.job_id = jobs.id AND matches.worker_user_id = ?
 		)`, userID).
 		Where(`(
 			SELECT COUNT(*) FROM matches
@@ -114,6 +132,10 @@ func (r *Repository) ListWorkers(ctx context.Context, userID string, filters dom
 	for _, swipe := range swipes {
 		swiped[swipe.TargetID] = true
 	}
+	unmatchedApplicants, err := r.unmatchedApplicantWorkerIDs(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 
 	var seedWorkers []database.Worker
 	if err := r.db.WithContext(ctx).Where("deleted_at IS NULL").Find(&seedWorkers).Error; err != nil {
@@ -122,7 +144,7 @@ func (r *Repository) ListWorkers(ctx context.Context, userID string, filters dom
 	result := make([]domain.Worker, 0, len(seedWorkers))
 	for _, worker := range seedWorkers {
 		card := toWorker(worker)
-		if !swiped[card.ID] && matchesFilters(
+		if workerVisible(card.ID, swiped, unmatchedApplicants) && matchesFilters(
 			card.Category, "", card.DistanceKM, card.PayAmount,
 			card.ExperienceBucket, float64(worker.ExperienceYears), filters,
 		) {
@@ -149,7 +171,7 @@ func (r *Repository) ListWorkers(ctx context.Context, userID string, filters dom
 	for _, profile := range profiles {
 		card := profileCard(profile, ratings["wp_"+profile.UserID], verifiedUsers[profile.UserID])
 		card.DistanceKM = viewerDistance(filters, profile.Latitude, profile.Longitude, card.DistanceKM)
-		if !swiped[card.ID] && matchesFilters(
+		if workerVisible(card.ID, swiped, unmatchedApplicants) && matchesFilters(
 			card.Category, "", card.DistanceKM, card.PayAmount,
 			card.ExperienceBucket, experienceLabelYears(profile.ExperienceLabel), filters,
 		) {
@@ -160,6 +182,34 @@ func (r *Repository) ListWorkers(ctx context.Context, userID string, filters dom
 	return result, nil
 }
 
+func (r *Repository) unmatchedApplicantWorkerIDs(ctx context.Context, employerID string) (map[string]bool, error) {
+	var workerIDs []string
+	err := r.db.WithContext(ctx).Raw(`
+		SELECT DISTINCT s.swiper_user_id
+		FROM swipes s
+		JOIN jobs j ON j.id = s.target_id AND j.owner_user_id = ?
+			AND j.deleted_at IS NULL AND j.hidden_at IS NULL
+		WHERE s.target_type = 'job' AND s.direction = 'right'
+		  AND NOT EXISTS (
+			SELECT 1 FROM matches
+			WHERE matches.kind = 'real'
+			  AND matches.worker_user_id = s.swiper_user_id
+			  AND matches.job_id = j.id
+		  )`, employerID).Scan(&workerIDs).Error
+	if err != nil {
+		return nil, err
+	}
+	visible := make(map[string]bool, len(workerIDs))
+	for _, workerID := range workerIDs {
+		visible["wp_"+workerID] = true
+	}
+	return visible, nil
+}
+
+func workerVisible(cardID string, swiped, unmatchedApplicants map[string]bool) bool {
+	return !swiped[cardID] || unmatchedApplicants[cardID]
+}
+
 func (r *Repository) Job(ctx context.Context, jobID string) (domain.Job, error) {
 	var model database.Job
 	err := r.db.WithContext(ctx).Where("id = ? AND deleted_at IS NULL AND hidden_at IS NULL", jobID).First(&model).Error
@@ -167,6 +217,17 @@ func (r *Repository) Job(ctx context.Context, jobID string) (domain.Job, error) 
 		return domain.Job{}, application.ErrNotFound
 	}
 	return toJob(model), err
+}
+
+func (r *Repository) OwnedJob(ctx context.Context, ownerUserID, jobID string) (domain.Job, error) {
+	var model database.Job
+	err := r.db.WithContext(ctx).
+		Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", jobID, ownerUserID).
+		First(&model).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return domain.Job{}, application.ErrNotFound
+	}
+	return toOwnedJob(model), err
 }
 
 func (r *Repository) Worker(ctx context.Context, workerID string) (domain.Worker, error) {
@@ -208,6 +269,7 @@ func (r *Repository) CreateJob(ctx context.Context, ownerUserID string, input do
 		ID:                 id.New("job_", 10),
 		OwnerUserID:        &ownerUserID,
 		Business:           input.Business,
+		EmployerType:       input.EmployerType,
 		Title:              input.Title,
 		Role:               input.Title,
 		Category:           input.Category,
@@ -219,7 +281,8 @@ func (r *Repository) CreateJob(ctx context.Context, ownerUserID string, input do
 		ExperienceBucket:   experienceBucket(input.MinExperienceLabel),
 		Description:        input.Description,
 		Phone:              input.Phone,
-		PhotoURLs:          []string{},
+		AllowDirectCall:    input.AllowDirectCall,
+		PhotoURLs:          emptyPhotoURLs(input.PhotoURLs),
 		ScreeningQuestions: input.ScreeningQuestions,
 		WorkersNeeded:      input.WorkersNeeded,
 		Latitude:           input.Latitude,
@@ -227,10 +290,95 @@ func (r *Repository) CreateJob(ctx context.Context, ownerUserID string, input do
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
-	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&model).Error; err != nil {
+			return err
+		}
+		return tx.Model(&database.Profile{}).
+			Where("user_id = ?", ownerUserID).
+			Update("employer_type", input.EmployerType).Error
+	}); err != nil {
 		return domain.Job{}, err
 	}
-	return toJob(model), nil
+	return toOwnedJob(model), nil
+}
+
+func (r *Repository) UpdateJob(
+	ctx context.Context,
+	ownerUserID, jobID string,
+	input domain.JobInput,
+) (domain.Job, error) {
+	var model database.Job
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND owner_user_id = ? AND deleted_at IS NULL", jobID, ownerUserID).
+			First(&model).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return application.ErrNotFound
+			}
+			return err
+		}
+		model.Business = input.Business
+		model.EmployerType = input.EmployerType
+		model.Title = input.Title
+		model.Role = input.Title
+		model.Category = input.Category
+		model.PayAmount = input.PayAmount
+		model.PayUnit = input.PayUnit
+		model.DistanceKM = input.DistanceKM
+		model.JobType = input.JobType
+		model.MinExperienceLabel = "Min. " + input.MinExperienceLabel
+		model.ExperienceBucket = experienceBucket(input.MinExperienceLabel)
+		model.Description = input.Description
+		model.Phone = input.Phone
+		model.AllowDirectCall = input.AllowDirectCall
+		if input.PhotoURLs != nil {
+			model.PhotoURLs = input.PhotoURLs
+		}
+		if input.ScreeningQuestions == nil {
+			model.ScreeningQuestions = []string{}
+		} else {
+			model.ScreeningQuestions = input.ScreeningQuestions
+		}
+		model.WorkersNeeded = input.WorkersNeeded
+		model.UpdatedAt = time.Now().UTC()
+		selects := []string{
+			"business", "employer_type", "title", "role", "category",
+			"pay_amount", "pay_unit", "distance_km", "job_type",
+			"min_experience_label", "experience_bucket", "description",
+			"phone", "allow_direct_call", "screening_questions",
+			"workers_needed", "updated_at",
+		}
+		if input.PhotoURLs != nil {
+			selects = append(selects, "photo_urls")
+		}
+		if input.Latitude != nil && input.Longitude != nil {
+			model.Latitude = input.Latitude
+			model.Longitude = input.Longitude
+			selects = append(selects, "latitude", "longitude")
+		}
+		if err := tx.Select(selects).Updates(&model).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&database.Profile{}).
+			Where("user_id = ?", ownerUserID).
+			Update("employer_type", input.EmployerType).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&database.Match{}).
+			Where("kind = ? AND job_id = ?", "real", jobID).
+			Updates(map[string]any{
+				"job_phone":              storedDirectCallPhone(model.Phone, model.AllowDirectCall),
+				"job_allow_direct_call": model.AllowDirectCall,
+			}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", jobID).First(&model).Error
+	})
+	if err != nil {
+		return domain.Job{}, err
+	}
+	return toOwnedJob(model), nil
 }
 
 func (r *Repository) AddJobPhoto(
@@ -256,12 +404,12 @@ func (r *Repository) AddJobPhoto(
 			return application.ErrInvalidInput
 		}
 		result.PhotoURLs = append(result.PhotoURLs, photoURL)
-		return tx.Model(&result).Update("photo_urls", result.PhotoURLs).Error
+		return tx.Select("photo_urls").Updates(&result).Error
 	})
 	if err != nil {
 		return domain.Job{}, err
 	}
-	return toJob(result), nil
+	return toOwnedJob(result), nil
 }
 
 func (r *Repository) OwnedJobs(ctx context.Context, ownerID string) ([]domain.Job, error) {
@@ -271,7 +419,7 @@ func (r *Repository) OwnedJobs(ctx context.Context, ownerID string) ([]domain.Jo
 	}
 	result := make([]domain.Job, 0, len(models))
 	for _, model := range models {
-		result = append(result, toJob(model))
+		result = append(result, toOwnedJob(model))
 	}
 	return result, nil
 }
@@ -343,6 +491,9 @@ func applyJobFilters(query *gorm.DB, filters domain.Filters) *gorm.DB {
 	}
 	if filters.JobType != "" && filters.JobType != "Semua" {
 		query = query.Where("jobs.job_type = ?", filters.JobType)
+	}
+	if filters.MinPay != nil {
+		query = query.Where("jobs.pay_amount >= ?", maxPayQueryValue(*filters.MinPay))
 	}
 	if filters.MaxPay != nil {
 		query = query.Where("jobs.pay_amount <= ?", maxPayQueryValue(*filters.MaxPay))
@@ -439,8 +590,18 @@ func matchesFilters(
 	if filters.Experience != "" && filters.Experience != "Semua" && experienceBucket != filters.Experience {
 		return false
 	}
+	if filters.MinPay != nil {
+		if float64(pay) < *filters.MinPay {
+			return false
+		}
+	}
 	if filters.MaxPay != nil {
 		if float64(pay) > *filters.MaxPay {
+			return false
+		}
+	}
+	if filters.MinExperience != nil {
+		if experienceValue < *filters.MinExperience {
 			return false
 		}
 	}
@@ -493,44 +654,65 @@ func experienceLabelYears(label string) float64 {
 func toProfile(model database.Profile) domain.Profile {
 	return domain.Profile{
 		UserID: model.UserID, Name: model.Name, Category: model.Category,
-		ExperienceLabel: model.ExperienceLabel, Availability: model.Availability,
-		Bio: model.Bio, Rate: model.Rate, Phone: model.Phone, PhotoURL: model.PhotoURL,
-		PhotoURLs: model.PhotoURLs,
-		Latitude:  model.Latitude, Longitude: model.Longitude, UpdatedAt: model.UpdatedAt,
+		ExperienceLabel: model.ExperienceLabel, LastEducation: model.LastEducation,
+		Availability: model.Availability,
+		Bio:          model.Bio, Rate: model.Rate, Phone: model.Phone,
+		AllowDirectCall: model.AllowDirectCall, PhotoURL: primaryProfilePhoto(model),
+		PhotoURLs: model.PhotoURLs, EmployerType: model.EmployerType,
+		Latitude: model.Latitude, Longitude: model.Longitude, UpdatedAt: model.UpdatedAt,
 	}
 }
 
 func toJob(model database.Job) domain.Job {
-	return domain.Job{
-		ID: model.ID, OwnerUserID: model.OwnerUserID, Business: model.Business, Title: model.Title,
+	result := domain.Job{
+		ID: model.ID, OwnerUserID: model.OwnerUserID, Business: model.Business,
+		EmployerType: model.EmployerType, Title: model.Title,
 		Role: model.Role, Category: model.Category, PayAmount: model.PayAmount, PayUnit: model.PayUnit,
 		DistanceKM: model.DistanceKM, JobType: model.JobType, MinExperienceLabel: model.MinExperienceLabel,
-		ExperienceBucket: model.ExperienceBucket, Description: model.Description, Phone: model.Phone,
-		PhotoURLs:          model.PhotoURLs,
+		ExperienceBucket: model.ExperienceBucket, Description: model.Description,
+		AllowDirectCall:    model.AllowDirectCall,
+		PhotoURL:           primaryJobPhoto(model.PhotoURLs),
+		PhotoURLs:          workplacePhotos(model.PhotoURLs),
 		ScreeningQuestions: model.ScreeningQuestions, WorkersNeeded: model.WorkersNeeded,
 		Latitude: model.Latitude, Longitude: model.Longitude, CreatedAt: model.CreatedAt,
 	}
+	if model.AllowDirectCall {
+		result.Phone = model.Phone
+	}
+	return result
+}
+
+func toOwnedJob(model database.Job) domain.Job {
+	result := toJob(model)
+	result.Phone = model.Phone
+	return result
 }
 
 func toWorker(model database.Worker) domain.Worker {
 	return domain.Worker{
 		ID: model.ID, Name: model.Name, Category: model.Category, Role: model.Role,
-		ExperienceLabel: model.ExperienceLabel, ExperienceBucket: model.ExperienceBucket,
-		DistanceKM: model.DistanceKM, PayAmount: model.PayAmount, PayUnit: model.PayUnit,
+		ExperienceLabel: model.ExperienceLabel, LastEducation: model.LastEducation,
+		ExperienceBucket: model.ExperienceBucket,
+		DistanceKM:       model.DistanceKM, PayAmount: model.PayAmount, PayUnit: model.PayUnit,
 		Rating: model.Rating, JobsCompleted: model.JobsCompleted, Verified: model.Verified,
 		IsNew: model.IsNew, Avatar: cleanAvatar(model.Avatar), Bio: model.Bio, IsReal: false,
 	}
 }
 
 func profileCard(profile database.Profile, stats reviewStat, verified bool) domain.Worker {
-	return domain.Worker{
+	result := domain.Worker{
 		ID: "wp_" + profile.UserID, Name: profile.Name, Category: profile.Category, Role: profile.Category,
-		ExperienceLabel: profile.ExperienceLabel, ExperienceBucket: profileExperienceBucket(profile.ExperienceLabel),
-		DistanceKM: stableDistance(profile.UserID), PayAmount: parsePayAmount(profile.Rate), PayDisplay: profile.Rate,
+		ExperienceLabel: profile.ExperienceLabel, LastEducation: profile.LastEducation,
+		ExperienceBucket: profileExperienceBucket(profile.ExperienceLabel),
+		DistanceKM:       stableDistance(profile.UserID), PayAmount: parsePayAmount(profile.Rate), PayDisplay: profile.Rate,
 		Rating: stats.Rating, JobsCompleted: stats.Count, Verified: verified, IsNew: stats.Count == 0,
-		Avatar: cleanAvatar(profile.PhotoURL), Bio: profile.Bio, Availability: profile.Availability,
-		Phone: profile.Phone, OwnerUserID: profile.UserID, IsReal: true,
+		Avatar: cleanAvatar(primaryProfilePhoto(profile)), Bio: profile.Bio, Availability: profile.Availability,
+		AllowDirectCall: profile.AllowDirectCall, OwnerUserID: profile.UserID, IsReal: true,
 	}
+	if profile.AllowDirectCall {
+		result.Phone = profile.Phone
+	}
+	return result
 }
 
 func experienceBucket(label string) string {
@@ -588,4 +770,47 @@ func cleanAvatar(value string) string {
 		}
 	}
 	return value
+}
+
+func storedDirectCallPhone(phone string, allowed bool) string {
+	if !allowed {
+		return ""
+	}
+	return phone
+}
+
+func emptyPhotoURLs(photoURLs []string) []string {
+	if photoURLs == nil {
+		return []string{}
+	}
+	return photoURLs
+}
+
+func workplacePhotos(photoURLs []string) []string {
+	result := make([]string, 0, len(photoURLs))
+	for _, photoURL := range photoURLs {
+		photoURL = strings.TrimSpace(photoURL)
+		if photoURL == "" || strings.Contains(photoURL, "/profiles/") {
+			continue
+		}
+		result = append(result, photoURL)
+	}
+	return result
+}
+
+func primaryJobPhoto(photoURLs []string) string {
+	photos := workplacePhotos(photoURLs)
+	if len(photos) == 0 {
+		return ""
+	}
+	return photos[0]
+}
+
+func primaryProfilePhoto(profile database.Profile) string {
+	for _, photoURL := range profile.PhotoURLs {
+		if strings.TrimSpace(photoURL) != "" {
+			return strings.TrimSpace(photoURL)
+		}
+	}
+	return strings.TrimSpace(profile.PhotoURL)
 }

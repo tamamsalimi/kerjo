@@ -10,6 +10,7 @@ import Animated, {
 
 import { Icon, PrimaryButton } from "@/src/components/ui";
 import { categoryIcon } from "@/src/constants";
+import { APP_MAX_WIDTH } from "@/src/layout/phone-frame";
 import { fonts, spacing, useTheme } from "@/src/theme";
 
 export function MatchOverlay({
@@ -85,7 +86,7 @@ export function MatchOverlay({
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
-  card: { alignItems: "center", width: "100%" },
+  card: { alignItems: "center", width: "100%", maxWidth: APP_MAX_WIDTH },
   matchHeading: {
     flexDirection: "row",
     alignItems: "center",
@@ -106,9 +107,13 @@ const styles = StyleSheet.create({
   hint: { fontFamily: fonts.regular, fontSize: 14, marginTop: spacing.md, textAlign: "center" },
   actions: {
     position: "absolute",
-    left: spacing.xl,
-    right: spacing.xl,
+    left: 0,
+    right: 0,
     bottom: spacing["3xl"],
+    width: "100%",
+    maxWidth: APP_MAX_WIDTH,
+    alignSelf: "center",
+    paddingHorizontal: spacing.xl,
     gap: spacing.md,
   },
 });

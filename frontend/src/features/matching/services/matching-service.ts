@@ -5,6 +5,7 @@ export function postSwipe(
   targetId: string,
   direction: string,
   screeningAnswers?: string[],
+  jobId?: string,
 ) {
   return request<{ matched: boolean; match?: any }>("/swipe", {
     method: "POST",
@@ -13,6 +14,7 @@ export function postSwipe(
       target_id: targetId,
       direction,
       screening_answers: screeningAnswers,
+      job_id: jobId,
     },
   });
 }
@@ -21,6 +23,13 @@ export function undoSwipe(targetType: string, targetId: string) {
   return request<{ ok: boolean }>("/swipe/undo", {
     method: "POST",
     body: { target_type: targetType, target_id: targetId },
+  });
+}
+
+export function recycleSkippedSwipes(targetType: "job" | "worker") {
+  return request<{ ok: boolean; recycled: number }>("/swipe/recycle", {
+    method: "POST",
+    body: { target_type: targetType },
   });
 }
 

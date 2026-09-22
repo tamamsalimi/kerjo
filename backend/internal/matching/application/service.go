@@ -19,6 +19,7 @@ type Repository interface {
 	CanSwipe(context.Context, string, string) (bool, error)
 	Swipe(context.Context, string, domain.SwipeInput) (domain.SwipeResult, error)
 	Undo(context.Context, string, string, string) error
+	RecycleSkipped(context.Context, string, string) (int64, error)
 	List(context.Context, string) ([]domain.MatchView, error)
 	UnreadCount(context.Context, string) (int64, error)
 	Applicants(context.Context, string) ([]domain.Applicant, error)
@@ -65,6 +66,13 @@ func (s *Service) Undo(ctx context.Context, userID, targetType, targetID string)
 		return ErrInvalidTarget
 	}
 	return s.repository.Undo(ctx, userID, targetType, targetID)
+}
+
+func (s *Service) RecycleSkipped(ctx context.Context, userID, targetType string) (int64, error) {
+	if targetType != "job" && targetType != "worker" {
+		return 0, ErrInvalidTarget
+	}
+	return s.repository.RecycleSkipped(ctx, userID, targetType)
 }
 
 func (s *Service) List(ctx context.Context, userID string) ([]domain.MatchView, error) {

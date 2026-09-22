@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"kerjo/backend/internal/marketplace/domain"
+	"kerjo/backend/internal/platform/database"
 )
 
 func TestViewerDistanceUsesCoordinates(t *testing.T) {
@@ -53,6 +54,24 @@ func TestMultipleCategoryFiltersMatchAnySelectedCategory(t *testing.T) {
 	}
 }
 
+func TestContinuousRangeFilters(t *testing.T) {
+	minPay, maxPay := 200_000.0, 750_000.5
+	minExperience, maxExperience := 1.0, 2.7
+	filters := domain.Filters{
+		MinPay: &minPay, MaxPay: &maxPay,
+		MinExperience: &minExperience, MaxExperience: &maxExperience,
+	}
+	if !matchesFilters("Akuntan", "Full-time", 1, 700_000, "1-2", 2, filters) {
+		t.Fatal("expected values inside the continuous range to pass")
+	}
+	if matchesFilters("Akuntan", "Full-time", 1, 150_000, "1-2", 2, filters) {
+		t.Fatal("expected payment below the continuous minimum to fail")
+	}
+	if matchesFilters("Akuntan", "Full-time", 1, 700_000, "Baru", 0, filters) {
+		t.Fatal("expected experience below the continuous minimum to fail")
+	}
+}
+
 func TestContinuousMaximumFilters(t *testing.T) {
 	maxPay, maxExperience := 750_000.5, 2.7
 	filters := domain.Filters{MaxPay: &maxPay, MaxExperience: &maxExperience}
@@ -64,6 +83,17 @@ func TestContinuousMaximumFilters(t *testing.T) {
 	}
 	if matchesFilters("Akuntan", "Full-time", 1, 700_000, "3-5", 3, filters) {
 		t.Fatal("expected experience above the continuous maximum to fail")
+	}
+}
+
+func TestWorkerVisibleKeepsUnmatchedApplicantsAfterPreviousMatch(t *testing.T) {
+	swiped := map[string]bool{"wp_user_1": true}
+	unmatched := map[string]bool{"wp_user_1": true}
+	if !workerVisible("wp_user_1", swiped, unmatched) {
+		t.Fatal("expected a worker matched on an old job to stay visible for a different unmatched job")
+	}
+	if workerVisible("wp_user_2", map[string]bool{"wp_user_2": true}, map[string]bool{}) {
+		t.Fatal("expected a swiped worker without another application to stay hidden")
 	}
 }
 
@@ -124,5 +154,25 @@ func TestRelevantWorkerCategoriesAreOrderedFirst(t *testing.T) {
 	sortWorkersByCategory(workers, []string{"Fotografi"})
 	if workers[0].ID != "2" {
 		t.Fatalf("first worker = %s; want 2", workers[0].ID)
+	}
+}
+
+func TestPublicCardsHidePhoneUnlessDirectCallsAreAllowed(t *testing.T) {
+	job := database.Job{Phone: "08123"}
+	if got := toJob(job); got.Phone != "" {
+		t.Fatalf("toJob() exposed phone %q while calls are disabled", got.Phone)
+	}
+	job.AllowDirectCall = true
+	if got := toJob(job); got.Phone != "08123" {
+		t.Fatalf("toJob() phone = %q; want 08123", got.Phone)
+	}
+
+	profile := database.Profile{UserID: "user_1", Phone: "08456"}
+	if got := profileCard(profile, reviewStat{}, false); got.Phone != "" {
+		t.Fatalf("profileCard() exposed phone %q while calls are disabled", got.Phone)
+	}
+	profile.AllowDirectCall = true
+	if got := profileCard(profile, reviewStat{}, false); got.Phone != "08456" {
+		t.Fatalf("profileCard() phone = %q; want 08456", got.Phone)
 	}
 }

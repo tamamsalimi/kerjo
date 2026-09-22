@@ -211,10 +211,19 @@ func listSQL(kind string, f map[string]string) (string, string, []any, error) {
 		}
 		addSearch(&conditions, &args, f["q"], "r.author", "r.comment")
 	case "matches":
-		selectSQL = `SELECT m.id,m.kind,m.worker_user_id,m.employer_user_id,m.job_id,m.job_done,m.reviewed,m.created_at,
-			COUNT(msg.id) message_count,MAX(msg.created_at) last_message_at`
-		from, order, countSelect = ` FROM matches m LEFT JOIN messages msg ON msg.match_id=m.id`, ` GROUP BY m.id ORDER BY m.created_at DESC`, "SELECT COUNT(DISTINCT m.id)"
+		selectSQL = `SELECT m.id,m.kind,m.worker_user_id,m.employer_user_id,m.job_id,m.job_title,m.job_done,m.reviewed,m.created_at,
+			COUNT(msg.id) message_count,MAX(msg.created_at) last_message_at,
+			COALESCE(NULLIF(wu.name,''),m.worker_name,m.worker_user_id) worker_name,
+			COALESCE(NULLIF(eu.name,''),m.employer_user_id) employer_name`
+		from = ` FROM matches m LEFT JOIN messages msg ON msg.match_id=m.id LEFT JOIN users wu ON wu.user_id=m.worker_user_id LEFT JOIN users eu ON eu.user_id=m.employer_user_id`
+		order, countSelect = ` GROUP BY m.id, wu.name, eu.name ORDER BY m.created_at DESC`, "SELECT COUNT(DISTINCT m.id)"
 		addEqual(&conditions, &args, "m.kind", f["kind"])
+		if f["status"] == "closed" {
+			conditions = append(conditions, "m.job_done = TRUE")
+		} else if f["status"] == "active" {
+			conditions = append(conditions, "m.job_done = FALSE")
+		}
+		addSearch(&conditions, &args, f["q"], "m.id", "m.job_id", "m.job_title", "m.worker_user_id", "m.employer_user_id", "wu.name", "eu.name", "m.worker_name")
 	case "swipes":
 		selectSQL, from, order = `SELECT s.id,s.swiper_user_id,s.target_type,s.target_id,s.direction,s.created_at`, ` FROM swipes s`, ` ORDER BY s.created_at DESC`
 		addEqual(&conditions, &args, "s.direction", f["direction"])

@@ -85,13 +85,17 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("POST /api/verification", h.auth(http.HandlerFunc(h.submitVerification)))
 	mux.Handle("POST /api/verification/documents/{kind}", h.auth(http.HandlerFunc(h.uploadVerificationDocument)))
 	mux.Handle("GET /api/verification/documents/{kind}", h.auth(http.HandlerFunc(h.serveVerificationDocument)))
+	mux.Handle("GET /api/browse/access", h.auth(http.HandlerFunc(h.browseAccess)))
 	mux.Handle("GET /api/jobs", h.auth(http.HandlerFunc(h.listJobs)))
 	mux.Handle("POST /api/jobs", h.auth(http.HandlerFunc(h.createJob)))
 	mux.Handle("GET /api/jobs/{jobID}", h.auth(http.HandlerFunc(h.getJob)))
+	mux.Handle("GET /api/jobs/{jobID}/edit", h.auth(http.HandlerFunc(h.getOwnedJob)))
+	mux.Handle("PUT /api/jobs/{jobID}", h.auth(http.HandlerFunc(h.updateJob)))
 	mux.Handle("GET /api/workers", h.auth(http.HandlerFunc(h.listWorkers)))
 	mux.Handle("GET /api/workers/{workerID}", h.auth(http.HandlerFunc(h.getWorker)))
 	mux.Handle("POST /api/swipe", h.auth(http.HandlerFunc(h.swipe)))
 	mux.Handle("POST /api/swipe/undo", h.auth(http.HandlerFunc(h.undoSwipe)))
+	mux.Handle("POST /api/swipe/recycle", h.auth(http.HandlerFunc(h.recycleSkippedSwipes)))
 	mux.Handle("GET /api/matches", h.auth(http.HandlerFunc(h.listMatches)))
 	mux.Handle("GET /api/matches/unread-count", h.auth(http.HandlerFunc(h.unreadCount)))
 	mux.Handle("GET /api/matches/{matchID}", h.auth(http.HandlerFunc(h.getMatch)))
@@ -214,12 +218,15 @@ type profileRequest struct {
 	Name            string   `json:"name"`
 	Category        string   `json:"category"`
 	ExperienceLabel string   `json:"experience_label"`
+	LastEducation   string   `json:"last_education"`
 	Availability    string   `json:"availability"`
 	Bio             string   `json:"bio"`
 	Rate            string   `json:"rate"`
 	Phone           *string  `json:"phone"`
+	AllowDirectCall bool     `json:"allow_direct_call"`
 	PhotoURL        *string  `json:"photo_url"`
 	PhotoURLs       []string `json:"photo_urls"`
+	EmployerType    string   `json:"employer_type"`
 	Latitude        *float64 `json:"latitude"`
 	Longitude       *float64 `json:"longitude"`
 }
@@ -242,10 +249,13 @@ func (h *Handler) saveProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	profile, err := h.marketplace.SaveProfile(r.Context(), marketplacedomain.Profile{
 		UserID: user.ID, Name: request.Name, Category: request.Category,
-		ExperienceLabel: request.ExperienceLabel, Availability: request.Availability,
-		Bio: request.Bio, Rate: request.Rate, Phone: stringPointerValue(request.Phone),
-		PhotoURL: stringPointerValue(request.PhotoURL), PhotoURLs: request.PhotoURLs,
-		Latitude: request.Latitude, Longitude: request.Longitude,
+		ExperienceLabel: request.ExperienceLabel, LastEducation: request.LastEducation,
+		Availability: request.Availability,
+		Bio:          request.Bio, Rate: request.Rate, Phone: stringPointerValue(request.Phone),
+		AllowDirectCall: request.AllowDirectCall,
+		PhotoURL:        stringPointerValue(request.PhotoURL), PhotoURLs: request.PhotoURLs,
+		EmployerType: request.EmployerType,
+		Latitude:     request.Latitude, Longitude: request.Longitude,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -279,6 +289,10 @@ func (h *Handler) profileHistory(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	jobs, err := h.marketplace.Jobs(r.Context(), user.ID, filters(r))
+	if errors.Is(err, marketplaceapp.ErrProfileRequired) {
+		writeJSON(w, http.StatusOK, []marketplacedomain.Job{})
+		return
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -289,6 +303,10 @@ func (h *Handler) listJobs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	user := currentUser(r)
 	workers, err := h.marketplace.Workers(r.Context(), user.ID, filters(r))
+	if errors.Is(err, marketplaceapp.ErrJobRequired) {
+		writeJSON(w, http.StatusOK, []marketplacedomain.Worker{})
+		return
+	}
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -296,8 +314,26 @@ func (h *Handler) listWorkers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, workers)
 }
 
+func (h *Handler) browseAccess(w http.ResponseWriter, r *http.Request) {
+	access, err := h.marketplace.BrowseAccess(r.Context(), currentUser(r).ID)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, access)
+}
+
 func (h *Handler) getJob(w http.ResponseWriter, r *http.Request) {
 	job, err := h.marketplace.Job(r.Context(), r.PathValue("jobID"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (h *Handler) getOwnedJob(w http.ResponseWriter, r *http.Request) {
+	job, err := h.marketplace.OwnedJob(r.Context(), currentUser(r).ID, r.PathValue("jobID"))
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -316,6 +352,7 @@ func (h *Handler) getWorker(w http.ResponseWriter, r *http.Request) {
 
 type jobRequest struct {
 	Business           string   `json:"business"`
+	EmployerType       string   `json:"employer_type"`
 	Title              string   `json:"title"`
 	Category           string   `json:"category"`
 	PayAmount          int      `json:"pay_amount"`
@@ -325,6 +362,8 @@ type jobRequest struct {
 	MinExperienceLabel string   `json:"min_experience_label"`
 	Description        string   `json:"description"`
 	Phone              string   `json:"phone"`
+	AllowDirectCall    bool     `json:"allow_direct_call"`
+	PhotoURLs          []string `json:"photo_urls"`
 	ScreeningQuestions []string `json:"screening_questions"`
 	WorkersNeeded      int      `json:"workers_needed"`
 	Latitude           *float64 `json:"latitude"`
@@ -338,19 +377,40 @@ func (h *Handler) createJob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, "Invalid request body")
 		return
 	}
-	job, err := h.marketplace.CreateJob(r.Context(), user.ID, marketplacedomain.JobInput{
-		Business: request.Business, Title: request.Title, Category: request.Category,
-		PayAmount: request.PayAmount, PayUnit: request.PayUnit, DistanceKM: request.DistanceKM,
-		JobType: request.JobType, MinExperienceLabel: request.MinExperienceLabel,
-		Description: request.Description, Phone: request.Phone,
-		ScreeningQuestions: request.ScreeningQuestions, WorkersNeeded: request.WorkersNeeded,
-		Latitude: request.Latitude, Longitude: request.Longitude,
-	})
+	job, err := h.marketplace.CreateJob(r.Context(), user.ID, request.jobInput())
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (h *Handler) updateJob(w http.ResponseWriter, r *http.Request) {
+	user := currentUser(r)
+	var request jobRequest
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return
+	}
+	job, err := h.marketplace.UpdateJob(r.Context(), user.ID, r.PathValue("jobID"), request.jobInput())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, job)
+}
+
+func (request jobRequest) jobInput() marketplacedomain.JobInput {
+	return marketplacedomain.JobInput{
+		Business: request.Business, EmployerType: request.EmployerType,
+		Title: request.Title, Category: request.Category,
+		PayAmount: request.PayAmount, PayUnit: request.PayUnit, DistanceKM: request.DistanceKM,
+		JobType: request.JobType, MinExperienceLabel: request.MinExperienceLabel,
+		Description: request.Description, Phone: request.Phone,
+		AllowDirectCall: request.AllowDirectCall, PhotoURLs: request.PhotoURLs,
+		ScreeningQuestions: request.ScreeningQuestions, WorkersNeeded: request.WorkersNeeded,
+		Latitude: request.Latitude, Longitude: request.Longitude,
+	}
 }
 
 func (h *Handler) swipe(w http.ResponseWriter, r *http.Request) {
@@ -359,6 +419,7 @@ func (h *Handler) swipe(w http.ResponseWriter, r *http.Request) {
 		TargetType       string   `json:"target_type"`
 		TargetID         string   `json:"target_id"`
 		Direction        string   `json:"direction"`
+		JobID            string   `json:"job_id"`
 		ScreeningAnswers []string `json:"screening_answers"`
 	}
 	if err := decodeJSON(r, &request); err != nil {
@@ -367,7 +428,7 @@ func (h *Handler) swipe(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.matching.Swipe(r.Context(), user.ID, matchingdomain.SwipeInput{
 		TargetType: request.TargetType, TargetID: request.TargetID,
-		Direction: request.Direction, ScreeningAnswers: request.ScreeningAnswers,
+		Direction: request.Direction, JobID: request.JobID, ScreeningAnswers: request.ScreeningAnswers,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -391,6 +452,26 @@ func (h *Handler) undoSwipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (h *Handler) recycleSkippedSwipes(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		TargetType string `json:"target_type"`
+	}
+	if err := decodeJSON(r, &request); err != nil {
+		writeError(w, http.StatusUnprocessableEntity, "Invalid request body")
+		return
+	}
+	count, err := h.matching.RecycleSkipped(
+		r.Context(),
+		currentUser(r).ID,
+		request.TargetType,
+	)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "recycled": count})
 }
 
 func (h *Handler) listMatches(w http.ResponseWriter, r *http.Request) {
@@ -786,7 +867,8 @@ func filters(r *http.Request) marketplacedomain.Filters {
 		JobType:     r.URL.Query().Get("job_type"),
 		MaxDistance: maxDistance, PayBracket: r.URL.Query().Get("pay_bracket"),
 		Experience: r.URL.Query().Get("experience"),
-		MaxPay:     queryFloatPointer(r, "max_pay"), MaxExperience: queryFloatPointer(r, "max_experience"),
+		MinPay: queryFloatPointer(r, "min_pay"), MaxPay: queryFloatPointer(r, "max_pay"),
+		MinExperience: queryFloatPointer(r, "min_experience"), MaxExperience: queryFloatPointer(r, "max_experience"),
 		Latitude: queryFloatPointer(r, "latitude"), Longitude: queryFloatPointer(r, "longitude"),
 	}
 }

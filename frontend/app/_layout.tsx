@@ -17,6 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/src/components/error-boundary";
 import { ToastProvider } from "@/src/components/toast";
 import { AuthProvider, useAuth } from "@/src/features/auth/auth-context";
+import { PhoneFrame } from "@/src/layout/phone-frame";
 import { queryClient } from "@/src/services/query-client";
 import { useTheme } from "@/src/theme";
 
@@ -85,12 +86,14 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <KeyboardProvider>
             <SafeAreaProvider>
-              <AuthProvider>
-                <ToastProvider>
-                  <StatusBar style="dark" />
-                  {fontsLoaded ? <RootNavigator /> : <Splash />}
-                </ToastProvider>
-              </AuthProvider>
+              <PhoneFrame>
+                <AuthProvider>
+                  <ToastProvider>
+                    <StatusBar style="dark" />
+                    {fontsLoaded ? <RootNavigator /> : <Splash />}
+                  </ToastProvider>
+                </AuthProvider>
+              </PhoneFrame>
             </SafeAreaProvider>
           </KeyboardProvider>
         </QueryClientProvider>

@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import { Pressable, Text, TextInput, View } from "react-native";
+import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/features/auth/auth-context";
@@ -11,10 +12,10 @@ import {
   submitVerification,
   uploadVerificationDocument,
 } from "@/src/features/auth/services/auth-service";
-import { FormField, FormInput, Icon, PrimaryButton } from "@/src/components/ui";
+import { FormField, Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import { useImagePicker } from "@/src/hooks/use-image-picker";
-import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
+import { fonts, makeStyles, radius, softShadow, spacing, useTheme } from "@/src/theme";
 
 type DocumentKind = "ktp" | "face";
 
@@ -30,6 +31,8 @@ export default function Verification() {
   const { data, isLoading } = useQuery({ queryKey: ["verification"], queryFn: fetchVerification });
   const [phone, setPhone] = useState("");
   const [nik, setNIK] = useState("");
+  const [showNIK, setShowNIK] = useState(false);
+  const [focusedField, setFocusedField] = useState<"phone" | "nik" | null>(null);
   const [ktpURI, setKTPURI] = useState("");
   const [faceURI, setFaceURI] = useState("");
 
@@ -41,7 +44,7 @@ export default function Verification() {
     const uri = await pickImage({
       allowsEditing: true,
       quality: 0.8,
-      permissionMessage: "Izinkan akses foto untuk melanjutkan verifikasi",
+      permissionMessage: "Izinkan akses foto untuk lanjut verifikasi",
     });
     if (!uri) return;
     if (kind === "ktp") setKTPURI(uri);
@@ -57,7 +60,7 @@ export default function Verification() {
     onSuccess: async (view) => {
       queryClient.setQueryData(["verification"], view);
       await refreshUser();
-      toast("Verifikasi dikirim untuk pemeriksaan", "success");
+      toast("Verifikasi dikirim. Tim kami akan cek dulu ya", "success");
     },
     onError: (error: any) => toast(error?.message || "Gagal mengirim verifikasi", "error"),
   });
@@ -69,15 +72,15 @@ export default function Verification() {
       return;
     }
     if (!/^\d{16}$/.test(nik.trim())) {
-      toast("NIK harus terdiri dari 16 angka", "error");
+      toast("NIK harus 16 angka", "error");
       return;
     }
     if (!ktpURI && !data?.has_ktp_photo) {
-      toast("Unggah foto KTP", "error");
+      toast("Unggah foto KTP dulu ya", "error");
       return;
     }
     if (!faceURI && !data?.has_face_photo) {
-      toast("Unggah foto wajah", "error");
+      toast("Unggah foto wajah dulu ya", "error");
       return;
     }
     submit.mutate();
@@ -86,70 +89,121 @@ export default function Verification() {
   const status = data?.status ?? "unverified";
   const locked = status === "pending" || status === "approved";
 
+  function goBack() {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)/profile");
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]} testID="verification-screen">
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={10} testID="verification-back">
-          <Icon name="chevron-left" size={28} color={colors.onSurface} />
+        <Pressable onPress={goBack} hitSlop={6} style={styles.backBtn} testID="verification-back">
+          <Icon name="chevron-left" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={styles.headerTitle}>Verifikasi Identitas</Text>
-        <View style={{ width: 28 }} />
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerTitle}>Verifikasi</Text>
+          <Text style={styles.headerSubtitle}>Cek identitas biar bisa chat. Cepat, dan datanya aman.</Text>
+        </View>
       </View>
-      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing.xl }]}>
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + spacing["2xl"] }]}
+        keyboardShouldPersistTaps="handled"
+        bottomOffset={24}
+        showsVerticalScrollIndicator={false}
+        alwaysBounceVertical
+        bounces
+      >
         <StatusCard status={status} reason={data?.rejection_reason} />
 
         {!locked && !isLoading ? (
           <>
-            <Text style={styles.privacy}>
-              Data ini bersifat privat, tidak tampil di kartu profil, dan diperiksa manual.
-            </Text>
-            <FormField label="Nomor HP">
-              <FormInput
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                placeholder="0812 3456 7890"
-                placeholderTextColor={colors.muted}
-                testID="verification-phone"
+            <View style={styles.sectionCard}>
+              <FormField label="Nomor HP">
+                <TextInput
+                  style={[styles.input, (focusedField === "phone" || phone.length > 0) && styles.inputActive]}
+                  value={phone}
+                  onChangeText={setPhone}
+                  onFocus={() => setFocusedField("phone")}
+                  onBlur={() => setFocusedField(null)}
+                  keyboardType="phone-pad"
+                  autoComplete="off"
+                  autoCorrect={false}
+                  spellCheck={false}
+                  textContentType="none"
+                  importantForAutofill="no"
+                  placeholder="0812 3456 7890"
+                  placeholderTextColor={colors.muted}
+                  testID="verification-phone"
+                />
+              </FormField>
+
+              <FormField label="NIK KTP" helper={`${nik.length}/16 digit`} last>
+                <View style={[styles.inputShell, (focusedField === "nik" || nik.length > 0) && styles.inputActive]}>
+                  <TextInput
+                    style={styles.inputField}
+                    value={nik}
+                    onChangeText={(value) => setNIK(value.replace(/\D/g, "").slice(0, 16))}
+                    onFocus={() => setFocusedField("nik")}
+                    onBlur={() => setFocusedField(null)}
+                    keyboardType="number-pad"
+                    autoComplete="off"
+                    autoCorrect={false}
+                    spellCheck={false}
+                    textContentType="none"
+                    importantForAutofill="no"
+                    secureTextEntry={!showNIK}
+                    placeholder={data?.nik_masked || "16 digit NIK"}
+                    placeholderTextColor={colors.muted}
+                    testID="verification-nik"
+                  />
+                  <Pressable onPress={() => setShowNIK((value) => !value)} hitSlop={8} testID="verification-nik-toggle">
+                    <Icon name={showNIK ? "eye-off-outline" : "eye-outline"} size={20} color={colors.muted} />
+                  </Pressable>
+                </View>
+              </FormField>
+            </View>
+
+            <View style={styles.sectionCard}>
+              <DocumentPicker
+                title="Foto KTP"
+                hint="Seluruh kartu dan NIK kelihatan jelas."
+                uri={ktpURI}
+                alreadyUploaded={!!data?.has_ktp_photo}
+                onPress={() => pickDocument("ktp")}
+                testID="verification-ktp"
               />
-            </FormField>
-            <FormField label="NIK KTP">
-              <FormInput
-                value={nik}
-                onChangeText={(value) => setNIK(value.replace(/\D/g, "").slice(0, 16))}
-                keyboardType="number-pad"
-                secureTextEntry
-                placeholder={data?.nik_masked || "16 digit NIK"}
-                placeholderTextColor={colors.muted}
-                testID="verification-nik"
+              <DocumentPicker
+                title="Foto Wajah"
+                hint="Menghadap kamera, cahaya merata."
+                uri={faceURI}
+                alreadyUploaded={!!data?.has_face_photo}
+                onPress={() => pickDocument("face")}
+                testID="verification-face"
               />
-            </FormField>
-            <DocumentPicker
-              title="Foto KTP"
-              hint="Pastikan seluruh kartu dan NIK terlihat jelas."
-              uri={ktpURI}
-              alreadyUploaded={!!data?.has_ktp_photo}
-              onPress={() => pickDocument("ktp")}
-              testID="verification-ktp"
-            />
-            <DocumentPicker
-              title="Foto Wajah"
-              hint="Gunakan foto wajah yang jelas untuk dicocokkan dengan KTP."
-              uri={faceURI}
-              alreadyUploaded={!!data?.has_face_photo}
-              onPress={() => pickDocument("face")}
-              testID="verification-face"
-            />
+            </View>
+
+            <View style={styles.privacyRow}>
+              <Icon name="lock-outline" size={16} color={colors.muted} />
+              <Text style={styles.privacy}>
+                Datamu privat di Kerjo. Dicek manual, nggak tampil di profil.
+              </Text>
+            </View>
+
             <PrimaryButton
-              label="Kirim untuk Verifikasi"
-              icon="shield-check"
+              label="Kirim verifikasi"
+              icon="hand-wave"
               loading={submit.isPending}
               onPress={startSubmit}
               testID="verification-submit"
+              style={styles.submitBtn}
             />
           </>
         ) : null}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }
@@ -157,29 +211,43 @@ export default function Verification() {
 function StatusCard({ status, reason }: { status: string; reason?: string }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const config: Record<string, { icon: string; title: string; text: string; color: string }> = {
+  const config: Record<string, { icon: string; title: string; text: string; color: string; surface: string }> = {
     unverified: {
-      icon: "shield-outline", title: "Belum terverifikasi",
-      text: "Lengkapi data di bawah untuk membuka fitur Chat.", color: colors.warning,
+      icon: "hand-wave",
+      title: "Belum diverifikasi",
+      text: "Isi data di bawah, biar fitur Chat kebuka.",
+      color: colors.brandPrimary,
+      surface: colors.brandTertiary,
     },
     pending: {
-      icon: "clock-outline", title: "Sedang diperiksa",
-      text: "Data kamu menunggu pemeriksaan manual.", color: colors.warning,
+      icon: "clock-outline",
+      title: "Sedang dicek",
+      text: "Santai dulu, tim kami lagi ngecek datamu.",
+      color: colors.attention,
+      surface: colors.warningSurface,
     },
     approved: {
-      icon: "shield-check", title: "Identitas terverifikasi",
-      text: "Fitur Chat sudah terbuka.", color: colors.success,
+      icon: "check-decagram",
+      title: "Sudah terverifikasi",
+      text: "Chat sudah kebuka. Terima kasih ya.",
+      color: colors.success,
+      surface: colors.successSurface,
     },
     rejected: {
-      icon: "alert-circle-outline", title: "Verifikasi ditolak",
-      text: reason || "Periksa kembali data dan kirim ulang.", color: colors.error,
+      icon: "alert-circle-outline",
+      title: "Belum lolos",
+      text: reason || "Coba cek lagi datanya, lalu kirim ulang.",
+      color: colors.error,
+      surface: colors.errorSurface,
     },
   };
   const item = config[status] || config.unverified;
   return (
-    <View style={[styles.statusCard, { borderColor: item.color }]}>
-      <Icon name={item.icon} size={28} color={item.color} />
-      <View style={{ flex: 1 }}>
+    <View style={[styles.statusCard, { backgroundColor: item.surface }]}>
+      <View style={[styles.statusBadge, { backgroundColor: colors.surface }]}>
+        <Icon name={item.icon} size={22} color={item.color} />
+      </View>
+      <View style={styles.statusCopy}>
         <Text style={styles.statusTitle}>{item.title}</Text>
         <Text style={styles.statusText}>{item.text}</Text>
       </View>
@@ -199,22 +267,35 @@ function DocumentPicker({
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
+  const ready = Boolean(uri || alreadyUploaded);
   return (
-    <Pressable style={styles.document} onPress={onPress} testID={testID}>
+    <Pressable
+      style={[styles.document, ready && styles.documentReady]}
+      onPress={onPress}
+      testID={testID}
+    >
       {uri ? (
         <Image source={{ uri }} style={styles.documentImage} contentFit="cover" />
       ) : (
-        <View style={styles.documentIcon}>
-          <Icon name={alreadyUploaded ? "check-circle" : "camera-plus-outline"} size={30} color={colors.brandPrimary} />
+        <View style={[styles.documentIcon, ready && styles.documentIconReady]}>
+          <Icon
+            name={alreadyUploaded ? "check-circle" : "camera-plus-outline"}
+            size={24}
+            color={ready ? colors.success : colors.brandPrimary}
+          />
         </View>
       )}
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={styles.documentTitle}>{title}</Text>
         <Text style={styles.documentHint}>
-          {alreadyUploaded && !uri ? "Sudah diunggah • ketuk untuk mengganti" : hint}
+          {alreadyUploaded && !uri ? "Sudah diunggah • ketuk untuk ganti" : hint}
         </Text>
       </View>
-      <Icon name="chevron-right" size={22} color={colors.muted} />
+      <View style={[styles.documentActionChip, ready && styles.documentActionChipReady]}>
+        <Text style={[styles.documentAction, ready && styles.documentActionReady]}>
+          {ready ? "Ganti" : "Unggah"}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -222,32 +303,184 @@ function DocumentPicker({
 const useStyles = makeStyles((colors) => ({
   container: { flex: 1, backgroundColor: colors.surfaceTertiary },
   header: {
-    minHeight: 48, paddingHorizontal: spacing.lg, flexDirection: "row",
-    alignItems: "center", justifyContent: "space-between", backgroundColor: colors.surface,
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.lg,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
   },
-  headerTitle: { fontFamily: fonts.medium, fontSize: 18, color: colors.onSurface },
-  content: { padding: spacing.lg, gap: spacing.lg },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    marginTop: 2,
+  },
+  headerCopy: { flex: 1, minWidth: 0, gap: 4 },
+  headerTitle: {
+    fontFamily: fonts.bold,
+    fontSize: 25,
+    lineHeight: 32,
+    letterSpacing: -0.5,
+    color: colors.onSurface,
+  },
+  headerSubtitle: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.muted,
+  },
+  scroll: { flex: 1 },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    gap: spacing.xl,
+  },
   statusCard: {
-    flexDirection: "row", alignItems: "center", gap: spacing.md,
-    borderWidth: 1, borderRadius: radius.lg, padding: spacing.lg,
-    backgroundColor: colors.surfaceSecondary,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
   },
-  statusTitle: { fontFamily: fonts.medium, fontSize: 16, color: colors.onSurface },
-  statusText: { fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: colors.muted, marginTop: 2 },
+  statusBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statusCopy: { flex: 1, minWidth: 0, gap: 2 },
+  statusTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 16,
+    color: colors.onSurface,
+  },
+  statusText: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.muted,
+  },
+  sectionCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...softShadow,
+  },
+  input: {
+    minHeight: 54,
+    backgroundColor: colors.surfaceTertiary,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceTertiary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.onSurface,
+    outlineWidth: 0,
+    outlineStyle: "solid",
+    outlineColor: "transparent",
+  },
+  inputActive: {
+    borderColor: colors.brandPrimary,
+  },
+  inputShell: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.surfaceTertiary,
+    backgroundColor: colors.surfaceTertiary,
+  },
+  inputField: {
+    flex: 1,
+    minHeight: 54,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.onSurface,
+    backgroundColor: "transparent",
+    outlineWidth: 0,
+    outlineStyle: "solid",
+    outlineColor: "transparent",
+  },
+  privacyRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
   privacy: {
-    fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: colors.muted,
-    backgroundColor: colors.surfaceTertiary, borderRadius: radius.md, padding: spacing.md,
+    flex: 1,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.muted,
+  },
+  submitBtn: {
+    borderRadius: radius.hero,
   },
   document: {
-    minHeight: 82, flexDirection: "row", alignItems: "center", gap: spacing.md,
-    padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.surfaceSecondary,
-    borderWidth: 1, borderColor: colors.divider,
+    minHeight: 84,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.hero,
+    backgroundColor: colors.surfaceTertiary,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: "dashed",
+  },
+  documentReady: {
+    borderStyle: "solid",
+    borderColor: colors.success,
+    backgroundColor: colors.successSurface,
   },
   documentIcon: {
-    width: 54, height: 54, borderRadius: radius.md, alignItems: "center",
-    justifyContent: "center", backgroundColor: colors.brandTertiary,
+    width: 52,
+    height: 52,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.brandTertiary,
   },
-  documentImage: { width: 54, height: 54, borderRadius: radius.md },
-  documentTitle: { fontFamily: fonts.medium, fontSize: 15, color: colors.onSurface },
-  documentHint: { fontFamily: fonts.regular, fontSize: 12, lineHeight: 17, color: colors.muted, marginTop: 2 },
+  documentIconReady: { backgroundColor: colors.surface },
+  documentImage: { width: 52, height: 52, borderRadius: radius.pill },
+  documentTitle: { fontFamily: fonts.semibold, fontSize: 15, color: colors.onSurface },
+  documentHint: {
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  documentActionChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.brandTertiary,
+  },
+  documentActionChipReady: {
+    backgroundColor: colors.surface,
+  },
+  documentAction: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.brandPrimary,
+  },
+  documentActionReady: {
+    color: colors.success,
+  },
 }));

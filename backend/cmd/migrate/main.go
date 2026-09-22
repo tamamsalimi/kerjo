@@ -7,7 +7,6 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"kerjo/backend/internal/bootstrap"
 	"kerjo/backend/internal/platform/config"
 	"kerjo/backend/internal/platform/database"
 	"kerjo/backend/internal/platform/logging"
@@ -41,10 +40,6 @@ func main() {
 	case "up":
 		if err := migrations.Up(ctx, db); err != nil {
 			logger.Error("migration failed", "error", err)
-			os.Exit(1)
-		}
-		if err := bootstrap.Seed(ctx, db, logger); err != nil {
-			logger.Error("seed failed", "error", err)
 			os.Exit(1)
 		}
 	case "down":

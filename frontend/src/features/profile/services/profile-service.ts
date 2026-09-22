@@ -1,4 +1,4 @@
-import { mediaUrl, request, uploadImage } from "@/src/services/http-client";
+import { request, uploadImage } from "@/src/services/http-client";
 
 export function getProfile() {
   return request<any>("/profile");
@@ -18,5 +18,5 @@ export function fetchWorker(id: string) {
 
 export async function uploadProfilePhoto(uri: string): Promise<string> {
   const data = await uploadImage(uri, "/profile/photos");
-  return mediaUrl(data.url);
+  return data.url;
 }

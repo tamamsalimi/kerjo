@@ -1,7 +1,7 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, Switch, Text, TextInput, View } from "react-native";
 import { KeyboardAwareScrollView, KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -23,18 +23,33 @@ import {
 } from "@/src/components/photo-picker";
 import { useToast } from "@/src/components/toast";
 import { useAuth } from "@/src/features/auth/auth-context";
-import { CATEGORIES, EXPERIENCE_LABELS, JOB_TYPES, categoryIcon } from "@/src/constants";
-import { createJob, uploadJobPhoto } from "@/src/features/jobs/services/jobs-service";
+import {
+  CATEGORIES,
+  EMPLOYER_TYPES,
+  EXPERIENCE_LABELS,
+  JOB_TYPES,
+  categoryIcon,
+  employerTypeLabel,
+} from "@/src/constants";
+import {
+  createJob,
+  fetchJobForEdit,
+  updateJob,
+  uploadJobPhoto,
+} from "@/src/features/jobs/services/jobs-service";
+import { getProfile } from "@/src/features/profile/services/profile-service";
 import { useImagePicker } from "@/src/hooks/use-image-picker";
 import { useLocation } from "@/src/hooks/use-location";
+import { ApiError, mediaUrl, persistLocalImage } from "@/src/services/http-client";
 import { usesNativeTabs } from "@/src/utils/navigation";
-import { setRecentJob } from "@/src/features/jobs/recent-job";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const PAY_UNITS = ["/jam", "/hari", "/minggu", "/bulan", "/proyek", "/acara"];
 type SelectKind = "pay" | "jobType" | "experience";
 
 export default function PostJob() {
+  const { jobId } = useLocalSearchParams<{ jobId?: string }>();
+  const isEditing = Boolean(jobId);
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const styles = useStyles();
@@ -46,6 +61,7 @@ export default function PostJob() {
   const { user } = useAuth();
 
   const [business, setBusiness] = useState("");
+  const [employerType, setEmployerType] = useState("pribadi");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [payAmount, setPayAmount] = useState("");
@@ -54,12 +70,59 @@ export default function PostJob() {
   const [experience, setExperience] = useState(EXPERIENCE_LABELS[0]);
   const [description, setDescription] = useState("");
   const [phone, setPhone] = useState("");
+  const [allowDirectCall, setAllowDirectCall] = useState(false);
   const [workers, setWorkers] = useState(1);
   const [questions, setQuestions] = useState<string[]>([""]);
   const [selectOpen, setSelectOpen] = useState<SelectKind | null>(null);
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [workplacePhotos, setWorkplacePhotos] = useState<GalleryPhoto[]>([]);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const { data: existingJob } = useQuery({
+    queryKey: ["job-edit", jobId],
+    queryFn: () => fetchJobForEdit(jobId!),
+    enabled: isEditing,
+  });
+  const { data: contactProfile } = useQuery({
+    queryKey: ["profile"],
+    queryFn: getProfile,
+    enabled: !isEditing,
+  });
+
+  useEffect(() => {
+    if (!isEditing && contactProfile?.phone) {
+      setPhone(contactProfile.phone);
+      setAllowDirectCall(Boolean(contactProfile.allow_direct_call));
+    }
+  }, [contactProfile, isEditing]);
+
+  useEffect(() => {
+    if (!existingJob) return;
+    setBusiness(existingJob.business ?? "");
+    setEmployerType(existingJob.employer_type ?? "pribadi");
+    setTitle(existingJob.title ?? "");
+    setCategory(existingJob.category ?? CATEGORIES[0]);
+    setPayAmount(existingJob.pay_amount
+      ? Number(existingJob.pay_amount).toLocaleString("id-ID")
+      : "");
+    setPayUnit(existingJob.pay_unit ?? PAY_UNITS[1]);
+    setJobType(existingJob.job_type ?? JOB_TYPES[0]);
+    setExperience(
+      String(existingJob.min_experience_label ?? EXPERIENCE_LABELS[0]).replace(/^Min\.\s*/, ""),
+    );
+    setDescription(existingJob.description ?? "");
+    setPhone(existingJob.phone ?? "");
+    setAllowDirectCall(Boolean(existingJob.allow_direct_call));
+    setWorkers(existingJob.workers_needed ?? 1);
+    setQuestions(existingJob.screening_questions?.length ? existingJob.screening_questions : [""]);
+    setWorkplacePhotos(
+      (existingJob.photo_urls ?? []).slice(0, 5).map((url: string, index: number) => ({
+        id: `existing-${index}-${url}`,
+        uri: mediaUrl(url),
+        remoteUrl: url,
+      })),
+    );
+  }, [existingJob]);
 
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const parsedPay = parseInt(payAmount.replace(/\D/g, ""), 10) || 0;
@@ -91,37 +154,79 @@ export default function PostJob() {
 
   async function pickWorkplacePhoto() {
     const uri = await pickImage({
+      allowsEditing: true,
       quality: 0.7,
       permissionMessage: "Akses foto dibutuhkan untuk memilih foto",
     });
     if (!uri) return;
-    setWorkplacePhotos((current) => [
-      ...current,
-      { id: `workplace-${Date.now()}-${current.length}`, uri },
-    ].slice(0, 5));
+    let persisted = uri;
+    try {
+      persisted = await persistLocalImage(uri);
+    } catch {
+      persisted = uri;
+    }
+    const photo: GalleryPhoto = {
+      id: `workplace-${Date.now()}-${workplacePhotos.length}`,
+      uri: persisted,
+    };
+    if (jobId) {
+      try {
+        setUploadingPhoto(true);
+        const uploaded = await uploadJobPhoto(jobId, persisted);
+        setWorkplacePhotos((current) => [
+          ...current,
+          { ...photo, uri: mediaUrl(uploaded.storedUrl), remoteUrl: uploaded.storedUrl },
+        ].slice(0, 5));
+        toast("Foto tempat kerja terunggah", "success");
+      } catch (error) {
+        toast(error instanceof ApiError && error.status === 413
+          ? "Foto terlalu besar. Coba pilih ulang atau potong fotonya."
+          : "Gagal mengunggah foto tempat kerja. Coba pilih fotonya lagi.", "error");
+      } finally {
+        setUploadingPhoto(false);
+      }
+      return;
+    }
+    setWorkplacePhotos((current) => [...current, photo].slice(0, 5));
   }
 
   const mutation = useMutation({
     mutationFn: async (input: any) => {
-      let job = await createJob(input);
+      let job = isEditing
+        ? await updateJob(jobId!, input)
+        : await createJob({ ...input, photo_urls: [] });
       let failedUploads = 0;
+      const uploadedURLs = new Map<string, string>();
       for (const photo of workplacePhotos) {
+        if (photo.remoteUrl) continue;
         try {
           const uploaded = await uploadJobPhoto(job.id, photo.uri);
           job = uploaded.job;
+          uploadedURLs.set(photo.id, uploaded.storedUrl);
         } catch {
           failedUploads += 1;
         }
       }
+      const photoUrls = workplacePhotos.flatMap((photo) => {
+        const url = photo.remoteUrl ?? uploadedURLs.get(photo.id);
+        return url ? [url] : [];
+      });
+      if (isEditing || photoUrls.length > 0) {
+        job = await updateJob(job.id, {
+          ...input,
+          photo_urls: photoUrls,
+        });
+      }
       return { job, failedUploads };
     },
-    onSuccess: ({ job, failedUploads }) => {
-      setRecentJob(job);
+    onSuccess: ({ failedUploads }) => {
       queryClient.invalidateQueries({ queryKey: ["browse"] });
       toast(
         failedUploads > 0
           ? `Lowongan tersimpan, ${failedUploads} foto gagal diunggah`
-          : "Lowongan berhasil dipasang! 🎉",
+          : isEditing
+            ? "Perubahan lowongan tersimpan"
+            : "Lowongan berhasil dipasang! 🎉",
         failedUploads > 0 ? "info" : "success",
       );
       setBusiness("");
@@ -129,21 +234,45 @@ export default function PostJob() {
       setPayAmount("");
       setDescription("");
       setPhone("");
+      setAllowDirectCall(false);
       setWorkers(1);
       setQuestions([""]);
       setWorkplacePhotos([]);
-      router.replace("/(tabs)");
+      queryClient.invalidateQueries({ queryKey: ["browse-access"] });
+      queryClient.invalidateQueries({ queryKey: ["profile-history"] });
+      leaveScreen();
     },
-    onError: () => toast("Gagal memasang lowongan", "error"),
+    onError: () => toast(isEditing ? "Gagal menyimpan perubahan" : "Gagal memasang lowongan", "error"),
   });
+
+  function leaveScreen() {
+    if (isEditing && router.canGoBack()) {
+      router.back();
+      return;
+    }
+    if (isEditing) {
+      router.replace("/(tabs)/profile");
+      return;
+    }
+    router.replace("/(tabs)");
+  }
 
   function submit() {
     if (!business.trim() || !title.trim() || !payAmount.trim()) {
       toast("Lengkapi nama, posisi, dan bayaran", "error");
       return;
     }
+    if (!isEditing && workplacePhotos.length === 0) {
+      toast("Tambahkan foto utama tempat kerja", "error");
+      return;
+    }
+    if (allowDirectCall && !phone.trim()) {
+      toast("Isi nomor telepon dulu untuk izinkan telepon langsung", "error");
+      return;
+    }
     mutation.mutate({
       business: business.trim(),
+      employer_type: employerType,
       title: title.trim(),
       category,
       pay_amount: parseInt(payAmount.replace(/\D/g, ""), 10) || 0,
@@ -153,6 +282,7 @@ export default function PostJob() {
       min_experience_label: experience,
       description: description.trim(),
       phone: phone.trim(),
+      allow_direct_call: Boolean(phone.trim()) && allowDirectCall,
       workers_needed: workers,
       screening_questions: questions.map((q) => q.trim()).filter(Boolean),
       latitude: location.coords?.latitude,
@@ -166,14 +296,14 @@ export default function PostJob() {
         <View style={styles.topBar}>
           <BrandLockup compact />
           <Pressable
-            onPress={() => router.replace("/(tabs)")}
+            onPress={leaveScreen}
             hitSlop={10}
             testID="close-post-job"
           >
             <Text style={styles.headerAction}>Kembali</Text>
           </Pressable>
         </View>
-        <Text style={styles.title}>Pasang Lowongan</Text>
+        <Text style={styles.title}>{isEditing ? "Edit Lowongan" : "Pasang Lowongan"}</Text>
       </View>
 
       <KeyboardAwareScrollView
@@ -188,6 +318,30 @@ export default function PostJob() {
               <VerificationTrustBadge label="Tempat Kerja Terverifikasi ✓" />
             </View>
           ) : null}
+          <FormField label="Tipe Pemberi Kerja">
+            <View style={styles.employerTypeRow}>
+              {EMPLOYER_TYPES.map((option) => {
+                const active = employerType === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    style={[styles.employerTypeOption, active && styles.employerTypeOptionActive]}
+                    onPress={() => setEmployerType(option.value)}
+                    testID={`employer-type-${option.value}`}
+                  >
+                    <Icon
+                      name={option.icon}
+                      size={18}
+                      color={active ? colors.brandPrimary : colors.muted}
+                    />
+                    <Text style={[styles.employerTypeText, active && styles.employerTypeTextActive]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </FormField>
           <FormField label="Foto Tempat Kerja">
             <PhotoGalleryPicker
               photos={workplacePhotos}
@@ -196,6 +350,8 @@ export default function PostJob() {
                 current.filter((_, itemIndex) => itemIndex !== index)
               ))}
               onMove={(from, to) => setWorkplacePhotos((current) => moveGalleryPhoto(current, from, to))}
+              uploading={uploadingPhoto}
+              mainRequired
               testID="workplace-photo-gallery"
             />
           </FormField>
@@ -385,9 +541,24 @@ export default function PostJob() {
                 testID="input-phone"
               />
             </View>
-            <Text style={styles.helper}>
-              Nomor ini digunakan untuk menghubungi kamu setelah ada yang cocok.
-            </Text>
+            <View style={styles.directCallRow}>
+              <View style={styles.directCallCopy}>
+                <Text style={styles.directCallTitle}>Izinkan Telepon Langsung</Text>
+                <Text style={styles.directCallHelper}>
+                  {allowDirectCall && phone.trim()
+                    ? "Pekerja yang cocok bisa menelepon langsung."
+                    : "Nomor tetap tersembunyi dari tombol telepon."}
+                </Text>
+              </View>
+              <Switch
+                value={Boolean(phone.trim()) && allowDirectCall}
+                onValueChange={setAllowDirectCall}
+                disabled={!phone.trim()}
+                trackColor={{ false: colors.border, true: colors.brandPrimary }}
+                thumbColor={colors.surface}
+                testID="job-allow-direct-call"
+              />
+            </View>
           </FormField>
         </SectionCard>
 
@@ -402,7 +573,9 @@ export default function PostJob() {
             </View>
           </View>
           <Text style={styles.summaryTitle}>{title.trim() || "Posisi pekerjaanmu"}</Text>
-          <Text style={styles.summaryBusiness}>{business.trim() || "Nama usaha / keluarga"}</Text>
+          <Text style={styles.summaryBusiness}>
+            {employerTypeLabel(employerType)} · {business.trim() || "Nama usaha / keluarga"}
+          </Text>
           <View style={styles.summaryMeta}>
             <View style={styles.summaryLine}>
               <Icon name="briefcase-outline" size={17} color={colors.brandPrimary} />
@@ -423,8 +596,8 @@ export default function PostJob() {
       <KeyboardStickyView offset={{ closed: 0, opened: spacing.md }}>
         <View style={[styles.footer, { paddingBottom: bottomChrome + spacing.md }]}>
           <PrimaryButton
-            label="Pasang Lowongan"
-            icon="send"
+            label={isEditing ? "Simpan Perubahan" : "Pasang Lowongan"}
+            icon={isEditing ? "content-save" : "send"}
             loading={mutation.isPending}
             onPress={submit}
             testID="submit-job"
@@ -498,6 +671,33 @@ const useStyles = makeStyles((colors) => ({
     paddingBottom: spacing["2xl"],
   },
   verificationRow: { marginBottom: spacing.md },
+  employerTypeRow: { flexDirection: "row", gap: spacing.sm },
+  employerTypeOption: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceTertiary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  employerTypeOptionActive: {
+    borderColor: colors.brandPrimary,
+    backgroundColor: colors.surface,
+  },
+  employerTypeText: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    color: colors.muted,
+  },
+  employerTypeTextActive: {
+    fontFamily: fonts.semibold,
+    color: colors.brandPrimary,
+  },
   input: {
     backgroundColor: colors.surfaceTertiary,
     borderRadius: radius.md,
@@ -641,6 +841,25 @@ const useStyles = makeStyles((colors) => ({
     fontFamily: fonts.medium,
     fontSize: 15,
     color: colors.onSurface,
+  },
+  directCallRow: {
+    minHeight: 52,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceTertiary,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  directCallCopy: { flex: 1, paddingVertical: spacing.sm },
+  directCallTitle: { fontFamily: fonts.semibold, fontSize: 13, color: colors.onSurface },
+  directCallHelper: {
+    fontFamily: fonts.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.muted,
+    marginTop: 2,
   },
   summaryCard: {
     borderRadius: radius.lg,

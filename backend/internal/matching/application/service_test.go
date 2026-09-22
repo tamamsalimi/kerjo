@@ -2,14 +2,16 @@ package application
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"kerjo/backend/internal/matching/domain"
 )
 
 type repositoryFake struct {
-	swipeCalls int
-	canSwipe   bool
+	swipeCalls    int
+	canSwipe      bool
+	recycledCount int64
 }
 
 func (r *repositoryFake) CanSwipe(context.Context, string, string) (bool, error) {
@@ -20,6 +22,9 @@ func (r *repositoryFake) Swipe(context.Context, string, domain.SwipeInput) (doma
 	return domain.SwipeResult{}, nil
 }
 func (*repositoryFake) Undo(context.Context, string, string, string) error { return nil }
+func (r *repositoryFake) RecycleSkipped(context.Context, string, string) (int64, error) {
+	return r.recycledCount, nil
+}
 func (*repositoryFake) List(context.Context, string) ([]domain.MatchView, error) {
 	return nil, nil
 }
@@ -75,5 +80,17 @@ func TestSwipeRequiresTheMatchingSideSetup(t *testing.T) {
 	}
 	if repository.swipeCalls != 0 {
 		t.Fatalf("repository swipe calls = %d; want 0", repository.swipeCalls)
+	}
+}
+
+func TestRecycleSkippedValidatesTargetAndReturnsCount(t *testing.T) {
+	repository := &repositoryFake{recycledCount: 3}
+	service := New(repository)
+	count, err := service.RecycleSkipped(context.Background(), "user_1", "job")
+	if err != nil || count != 3 {
+		t.Fatalf("RecycleSkipped() = (%d, %v); want (3, nil)", count, err)
+	}
+	if _, err := service.RecycleSkipped(context.Background(), "user_1", "invalid"); !errors.Is(err, ErrInvalidTarget) {
+		t.Fatalf("RecycleSkipped() error = %v; want ErrInvalidTarget", err)
 	}
 }

@@ -62,8 +62,11 @@ export interface Job {
 export interface MatchActivity {
   id: string
   jobId: string
+  jobTitle?: string
   employerId: string
+  employerName?: string
   workerId: string
+  workerName?: string
   status: string
   messageCount: number
   lastMessageAt?: string

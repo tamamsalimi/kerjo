@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
-  ScrollView,
+  Switch,
   Text,
   TextInput,
   View,
@@ -16,19 +16,25 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/features/auth/auth-context";
 import { BottomSheet } from "@/src/components/bottom-sheet";
-import { Chip, EmptyState, Icon, PrimaryButton } from "@/src/components/ui";
+import { GroupedCategoryPicker } from "@/src/components/category-selector";
+import { RangeSlider } from "@/src/components/range-slider";
+import { EmptyState, Icon, PrimaryButton } from "@/src/components/ui";
 import { useToast } from "@/src/components/toast";
 import {
-  CATEGORIES,
   DEFAULT_FILTERS,
   FILTER_LIMITS,
   TYPE_OPTIONS,
   activeFilterCount,
   categoryIcon,
+  employerTypeLabel,
   formatPay,
   type Filters,
 } from "@/src/constants";
-import { fetchJob, fetchJobs, fetchWorkers } from "@/src/features/discovery/services/discovery-service";
+import {
+  fetchBrowseAccess,
+  fetchJobs,
+  fetchWorkers,
+} from "@/src/features/discovery/services/discovery-service";
 import { JobCard, WorkerCard } from "@/src/features/discovery/components/cards";
 import {
   SwipeDeck,
@@ -36,14 +42,16 @@ import {
 } from "@/src/features/discovery/components/swipe-deck";
 import {
   fetchApplicants,
+  fetchMatches,
   postSwipe,
+  recycleSkippedSwipes,
   undoSwipe,
 } from "@/src/features/matching/services/matching-service";
+import { getProfile } from "@/src/features/profile/services/profile-service";
 import { MatchOverlay } from "@/src/features/matching/components/match-overlay";
 import { useLocation } from "@/src/hooks/use-location";
 import { ApiError } from "@/src/services/http-client";
 import { usesNativeTabs } from "@/src/utils/navigation";
-import { setRecentJob, useRecentJob } from "@/src/features/jobs/recent-job";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 type CardType = "job" | "worker";
@@ -52,6 +60,20 @@ type FeedCard = { id: string; _cardType: CardType; [key: string]: any };
 
 function withCardType(items: any[], cardType: CardType): FeedCard[] {
   return items.map((item) => ({ ...item, _cardType: cardType }));
+}
+
+function isOpenMatchCard(card: FeedCard, openMatches: any[]) {
+  if (card._cardType !== "job") {
+    return false;
+  }
+  return openMatches.some((match) => match.entity_type === "job" && match.entity_id === card.id);
+}
+
+function professionRank(card: FeedCard, profession?: string) {
+  if (!profession || card._cardType !== "job") {
+    return 1;
+  }
+  return String(card.category || "").trim().toLowerCase() === profession.trim().toLowerCase() ? 0 : 1;
 }
 
 export default function Home() {
@@ -68,45 +90,57 @@ export default function Home() {
   const registrationComplete = Boolean(user);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>("jobs");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [cards, setCards] = useState<FeedCard[]>([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
+  const [locationOptIn, setLocationOptIn] = useState(true);
+  const [draftLocationOptIn, setDraftLocationOptIn] = useState(true);
+  const [sheetScrollEnabled, setSheetScrollEnabled] = useState(true);
   const [jobDetail, setJobDetail] = useState<any | null>(null);
   const [match, setMatch] = useState<any | null>(null);
   const [showMatch, setShowMatch] = useState(false);
   const [undoStack, setUndoStack] = useState<any[]>([]);
+  const [recyclingSkipped, setRecyclingSkipped] = useState(false);
   const [screening, setScreening] = useState<{ item: any; answers: string[] } | null>(null);
 
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
-  const justPostedJob = useRecentJob();
 
-  const { data, error, isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["browse", browseFilter, filters, location.coords],
-    queryFn: async () => {
-      if (browseFilter === "jobs") return withCardType(await fetchJobs(filters, location.coords), "job");
-      const workerFilters = { ...filters, job_type: "Semua" };
-      return withCardType(await fetchWorkers(workerFilters, location.coords), "worker");
-    },
+  const {
+    data: browseAccess,
+    isLoading: accessLoading,
+    refetch: refetchAccess,
+  } = useQuery({
+    queryKey: ["browse-access"],
+    queryFn: fetchBrowseAccess,
     enabled: registrationComplete,
+  });
+  const canBrowse = browseFilter === "jobs"
+    ? browseAccess?.can_browse_jobs
+    : browseAccess?.can_browse_workers;
+  const accessBlocked = Boolean(browseAccess) && !canBrowse;
+
+  const activeCoords = locationOptIn && location.status === "granted" ? location.coords : null;
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ["browse", browseFilter, filters, activeCoords],
+    queryFn: async () => {
+      if (browseFilter === "jobs") return withCardType(await fetchJobs(filters, activeCoords), "job");
+      const workerFilters = { ...filters, job_type: "Semua" };
+      return withCardType(await fetchWorkers(workerFilters, activeCoords), "worker");
+    },
+    enabled: registrationComplete && canBrowse === true,
     retry: (failureCount, queryError) =>
       queryError instanceof ApiError && queryError.status === 409 ? false : failureCount < 2,
-    refetchInterval: registrationComplete ? 5000 : false,
+    refetchInterval: registrationComplete && canBrowse ? 5000 : false,
   });
-  const accessBlocked = isError && error instanceof ApiError && error.status === 409;
 
   useFocusEffect(
     useCallback(() => {
-      if (registrationComplete) void refetch();
-    }, [registrationComplete, refetch]),
+      if (!registrationComplete) return;
+      void refetchAccess();
+      if (canBrowse) void refetch();
+    }, [canBrowse, refetch, refetchAccess, registrationComplete]),
   );
-
-  const { error: recentJobError } = useQuery({
-    queryKey: ["recent-job-visibility", justPostedJob?.id],
-    queryFn: () => fetchJob(justPostedJob!.id),
-    enabled: registrationComplete && Boolean(justPostedJob?.id),
-    refetchInterval: registrationComplete && justPostedJob?.id ? 5000 : false,
-    retry: false,
-  });
 
   const { data: applicants } = useQuery({
     queryKey: ["applicants"],
@@ -114,30 +148,28 @@ export default function Home() {
     enabled: registrationComplete,
     refetchInterval: registrationComplete ? 8000 : false,
   });
+  const { data: matches } = useQuery({
+    queryKey: ["matches"],
+    queryFn: fetchMatches,
+    enabled: registrationComplete,
+  });
+  const { data: profile } = useQuery({
+    queryKey: ["profile"],
+    queryFn: getProfile,
+    enabled: registrationComplete,
+  });
   const applicantCount = applicants?.length ?? 0;
 
   useEffect(() => {
-    const feed = data ?? [];
-    const recentJob =
-      justPostedJob?.owner_user_id === user?.user_id
-        ? { ...justPostedJob, _cardType: "job" as const }
-        : null;
-    if (browseFilter === "workers" || !recentJob) {
-      setCards(feed);
-      return;
-    }
-    setCards([recentJob, ...feed.filter((item) => item.id !== recentJob.id)]);
-  }, [browseFilter, data, justPostedJob, user?.user_id]);
-
-  useEffect(() => {
-    if (justPostedJob) setBrowseFilter("jobs");
-  }, [justPostedJob]);
-
-  useEffect(() => {
-    if (justPostedJob && recentJobError instanceof ApiError && recentJobError.status === 404) {
-      setRecentJob(null);
-    }
-  }, [justPostedJob, recentJobError]);
+    const openMatches = (matches ?? []).filter((item: any) => !item.job_done);
+    const profession = typeof profile?.category === "string" ? profile.category : "";
+    setCards(
+      (data ?? [])
+        .filter((card) => !isOpenMatchCard(card, openMatches))
+        .slice()
+        .sort((left, right) => professionRank(left, profession) - professionRank(right, profession)),
+    );
+  }, [data, matches, profile?.category]);
 
   useEffect(() => {
     if (!registrationComplete) router.replace("/onboarding");
@@ -147,6 +179,9 @@ export default function Home() {
     const cardType = item._cardType as CardType;
     try {
       const res = await postSwipe(cardType, item.id, dir, answers);
+      queryClient.invalidateQueries({ queryKey: ["profile-history"] });
+      queryClient.invalidateQueries({ queryKey: ["applicants"] });
+      queryClient.invalidateQueries({ queryKey: ["browse"] });
       if (res.matched && res.match) {
         setMatch(res.match);
         setShowMatch(true);
@@ -209,30 +244,75 @@ export default function Home() {
     if (Platform.OS !== "web") Haptics.selectionAsync();
   }
 
+  async function reloadSkippedCards() {
+    setRecyclingSkipped(true);
+    try {
+      const targetType = browseFilter === "jobs" ? "job" : "worker";
+      const result = await recycleSkippedSwipes(targetType);
+      setUndoStack([]);
+      await refetch();
+      toast(
+        result.recycled > 0
+          ? `${result.recycled} kartu yang dilewati ditampilkan lagi`
+          : "Belum ada kartu yang dilewati",
+        "info",
+      );
+    } catch {
+      toast("Gagal memuat ulang kartu", "error");
+    } finally {
+      setRecyclingSkipped(false);
+    }
+  }
+
   function openDetail(item: any) {
     if (item._cardType === "job") setJobDetail(item);
     else router.push(`/worker/${item.id}`);
   }
 
-  async function onLocationPress() {
-    if (location.status === "granted") {
-      toast("Lokasi kamu aktif 📍", "success");
+  async function onLocationToggle(enabled: boolean) {
+    if (!enabled) {
+      setDraftLocationOptIn(false);
       return;
     }
-    const r = await location.request();
-    if (r === "granted") toast("Lokasi diaktifkan. Kerja terdekat diprioritaskan!", "success");
-    else if (r === "blocked") toast("Aktifkan lokasi di Pengaturan untuk hasil terdekat", "info");
+    if (location.status === "granted") {
+      setDraftLocationOptIn(true);
+      return;
+    }
+    const result = await location.request();
+    if (result === "granted") {
+      setDraftLocationOptIn(true);
+      toast("Lokasi diaktifkan. Kerja terdekat diprioritaskan!", "success");
+      return;
+    }
+    setDraftLocationOptIn(false);
+    if (result === "blocked") toast("Aktifkan lokasi di Pengaturan untuk hasil terdekat", "info");
     else toast("Tanpa lokasi, jarak tetap ditampilkan dari data", "info");
   }
 
-  const setFilter = (patch: Partial<Filters>) => setFilters((f) => ({ ...f, ...patch }));
+  const setDraft = (patch: Partial<Filters>) => setDraftFilters((current) => ({ ...current, ...patch }));
+  const setFilter = (patch: Partial<Filters>) => setDraft(patch);
   const toggleCategory = (category: string) =>
-    setFilters((current) => ({
+    setDraftFilters((current) => ({
       ...current,
       categories: current.categories.includes(category)
         ? current.categories.filter((value) => value !== category)
         : [...current.categories, category],
     }));
+  const openFilterSheet = () => {
+    setDraftFilters(filters);
+    setDraftLocationOptIn(locationOptIn);
+    setFilterOpen(true);
+  };
+  const applyDraftFilters = () => {
+    setFilters(draftFilters);
+    setLocationOptIn(draftLocationOptIn);
+    setFilterOpen(false);
+  };
+  const resetDraftFilters = () => {
+    const next = { ...DEFAULT_FILTERS, categories: [] };
+    setDraftFilters(next);
+    setFilters(next);
+  };
   const openCategoryPopup = () => {
     setFilterOpen(false);
     setTimeout(() => setCategoryOpen(true), 120);
@@ -242,7 +322,7 @@ export default function Home() {
     setTimeout(() => setFilterOpen(true), 120);
   };
   const fCount = activeFilterCount(filters);
-  const advancedFilterCount = fCount + (location.status === "granted" ? 1 : 0);
+  const advancedFilterCount = fCount + (locationOptIn && location.status === "granted" ? 1 : 0);
   const activeCard = cards[0];
   const activeCardType = activeCard?._cardType;
   if (!registrationComplete) {
@@ -275,7 +355,7 @@ export default function Home() {
           label="Filter"
           icon="filter"
           active={advancedFilterCount > 0}
-          onPress={() => setFilterOpen(true)}
+          onPress={openFilterSheet}
           testID="filter-button"
         />
       </View>
@@ -296,7 +376,7 @@ export default function Home() {
 
       {/* Deck */}
       <View style={[styles.deckArea, { paddingBottom: 108 + bottomChrome }]}>
-        {isLoading ? (
+        {accessLoading || (canBrowse && isLoading) ? (
           <View style={styles.center}>
             <View style={styles.skeleton}>
               <ActivityIndicator size="large" color={colors.brandPrimary} />
@@ -341,8 +421,8 @@ export default function Home() {
             <PrimaryButton
               label="Muat Ulang"
               variant="inverse"
-              loading={isFetching}
-              onPress={() => refetch()}
+              loading={isFetching || recyclingSkipped}
+              onPress={reloadSkippedCards}
               style={{ marginTop: spacing.lg }}
             />
           </EmptyState>
@@ -407,100 +487,131 @@ export default function Home() {
       ) : null}
 
       {/* Filter sheet */}
-      <BottomSheet visible={filterOpen} onClose={() => setFilterOpen(false)} title="Filter" testID="filter-sheet">
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <Pressable
-            style={({ pressed }) => [styles.categoryPicker, pressed && styles.pressed]}
-            onPress={openCategoryPopup}
-            testID="category-popup-trigger"
-          >
-            <CategoryMark />
-            <View style={styles.categoryPickerCopy}>
-              <Text style={styles.categoryPickerTitle}>Kategori</Text>
-              <Text style={styles.categoryPickerValue} numberOfLines={1}>
-                {filters.categories.length === 0
-                  ? "Semua kategori"
-                  : filters.categories.length === 1
-                    ? filters.categories[0]
-                    : `${filters.categories.length} kategori dipilih`}
-              </Text>
-            </View>
-            <Icon name="chevron-right" size={20} color={colors.muted} />
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [styles.locationFilter, pressed && styles.pressed]}
-            onPress={onLocationPress}
-            testID="location-button"
-          >
-            <View style={styles.locationFilterIcon}>
-              <Icon
-                name={location.status === "granted" ? "map-marker-check" : "map-marker-outline"}
-                size={22}
-                color={colors.brandPrimary}
-              />
-            </View>
-            <View style={styles.locationFilterCopy}>
-              <Text style={styles.locationFilterTitle}>Lokasi</Text>
-              <Text style={styles.locationFilterText}>
-                {location.status === "granted"
-                  ? "Aktif · hasil terdekat diprioritaskan"
-                  : "Aktifkan untuk hasil kerja terdekat"}
-              </Text>
-            </View>
-            <Icon
-              name={location.status === "granted" ? "check-circle" : "chevron-right"}
-              size={20}
-              color={location.status === "granted" ? colors.brandPrimary : colors.muted}
-            />
-          </Pressable>
-          <ContinuousFilterSlider
-            title="Jarak"
-            value={filters.max_distance}
-            minimumValue={FILTER_LIMITS.distance.min}
-            maximumValue={FILTER_LIMITS.distance.max}
-            formatValue={(value) => `${value.toFixed(1)} km`}
-            onChange={(max_distance) => setFilter({ max_distance: Math.round(max_distance * 10) / 10 })}
-            testID="distance-slider"
-          />
-          <ContinuousFilterSlider
-            title="Bayaran"
-            value={filters.max_pay}
-            minimumValue={FILTER_LIMITS.pay.min}
-            maximumValue={FILTER_LIMITS.pay.max}
-            formatValue={formatSliderPay}
-            onChange={(max_pay) => setFilter({ max_pay: Math.round(max_pay) })}
-            testID="pay-slider"
-          />
-          <ContinuousFilterSlider
-            title="Pengalaman"
-            value={filters.max_experience}
-            minimumValue={FILTER_LIMITS.experience.min}
-            maximumValue={FILTER_LIMITS.experience.max}
-            formatValue={(value) => `${value.toFixed(1)} tahun`}
-            onChange={(max_experience) => setFilter({ max_experience: Math.round(max_experience * 10) / 10 })}
-            testID="experience-slider"
-          />
-          <FilterGroup title="Tipe Kerja">
-            {TYPE_OPTIONS.map((o) => (
-              <Chip
-                key={o.value}
-                label={o.label}
-                active={filters.job_type === o.value}
-                onPress={() => setFilter({ job_type: o.value })}
-                variant="outlined"
-              />
-            ))}
-          </FilterGroup>
-          <View style={{ flexDirection: "row", gap: spacing.sm, marginTop: spacing.md }}>
+      <BottomSheet
+        visible={filterOpen}
+        onClose={() => setFilterOpen(false)}
+        title="Filter"
+        scrollEnabled={sheetScrollEnabled}
+        testID="filter-sheet"
+        footer={
+          <View style={styles.filterFooter}>
             <PrimaryButton
               label="Reset"
               variant="outline"
-              onPress={() => setFilters({ ...DEFAULT_FILTERS, categories: [] })}
-              style={{ flex: 1 }}
+              onPress={resetDraftFilters}
+              style={styles.filterAction}
+              textColor={colors.onSurface}
             />
-            <PrimaryButton label="Terapkan" onPress={() => setFilterOpen(false)} style={{ flex: 1 }} testID="apply-filter" />
+            <PrimaryButton
+              label="Terapkan"
+              onPress={applyDraftFilters}
+              style={styles.filterAction}
+              testID="apply-filter"
+            />
           </View>
-        </ScrollView>
+        }
+      >
+        <Pressable
+          style={({ pressed }) => [styles.categoryPicker, pressed && styles.pressed]}
+          onPress={openCategoryPopup}
+          testID="category-popup-trigger"
+        >
+          <CategoryMark />
+          <View style={styles.categoryPickerCopy}>
+            <Text style={styles.categoryPickerTitle}>Kategori</Text>
+            <Text style={styles.categoryPickerValue} numberOfLines={1}>
+              {draftFilters.categories.length === 0
+                ? "Semua kategori"
+                : draftFilters.categories.length === 1
+                  ? draftFilters.categories[0]
+                  : `${draftFilters.categories.length} kategori dipilih`}
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={20} color={colors.muted} />
+        </Pressable>
+        <View style={styles.locationFilter} testID="location-button">
+          <View style={styles.locationFilterIcon}>
+            <Icon name="map-marker" size={22} color={colors.brandPrimary} />
+          </View>
+          <View style={styles.locationFilterCopy}>
+            <Text style={styles.locationFilterTitle}>Lokasi</Text>
+            <Text style={styles.locationFilterText}>
+              {draftLocationOptIn && location.status === "granted"
+                ? "Aktif · hasil terdekat diprioritaskan"
+                : "Aktifkan untuk hasil kerja terdekat"}
+            </Text>
+          </View>
+          <Switch
+            value={draftLocationOptIn && location.status === "granted"}
+            onValueChange={onLocationToggle}
+            trackColor={{ false: colors.border, true: colors.brandPrimary }}
+            thumbColor={colors.surface}
+            testID="location-toggle"
+          />
+        </View>
+        <ContinuousFilterSlider
+          title="Jarak"
+          value={draftFilters.max_distance}
+          minimumValue={FILTER_LIMITS.distance.min}
+          maximumValue={FILTER_LIMITS.distance.max}
+          formatValue={(value) => `${value.toFixed(1)} km`}
+          onChange={(max_distance) => setDraft({ max_distance: Math.round(max_distance * 10) / 10 })}
+          onDragStart={() => setSheetScrollEnabled(false)}
+          onDragEnd={() => setSheetScrollEnabled(true)}
+          testID="distance-slider"
+        />
+        <RangeFilterSlider
+          title="Bayaran"
+          lowValue={draftFilters.min_pay}
+          highValue={draftFilters.max_pay}
+          minimumValue={FILTER_LIMITS.pay.min}
+          maximumValue={FILTER_LIMITS.pay.max}
+          step={50_000}
+          formatValue={formatSliderPay}
+          onChange={({ low, high }) => setDraft({ min_pay: Math.round(low), max_pay: Math.round(high) })}
+          onDragStart={() => setSheetScrollEnabled(false)}
+          onDragEnd={() => setSheetScrollEnabled(true)}
+          testID="pay-slider"
+        />
+        <RangeFilterSlider
+          title="Pengalaman"
+          lowValue={draftFilters.min_experience}
+          highValue={draftFilters.max_experience}
+          minimumValue={FILTER_LIMITS.experience.min}
+          maximumValue={FILTER_LIMITS.experience.max}
+          step={0.5}
+          formatValue={(value) => `${value.toFixed(1)} tahun`}
+          onChange={({ low, high }) => setDraft({
+            min_experience: Math.round(low * 10) / 10,
+            max_experience: Math.round(high * 10) / 10,
+          })}
+          onDragStart={() => setSheetScrollEnabled(false)}
+          onDragEnd={() => setSheetScrollEnabled(true)}
+          testID="experience-slider"
+        />
+        <View style={styles.jobTypeBlock}>
+          <Text style={styles.groupTitle}>Tipe Kerja</Text>
+          <View style={styles.jobTypeOptions}>
+            {TYPE_OPTIONS.map((option) => {
+              const active = draftFilters.job_type === option.value;
+              return (
+                <Pressable
+                  key={option.value}
+                  style={({ pressed }) => [styles.jobTypeOption, pressed && styles.pressed]}
+                  onPress={() => setDraft({ job_type: option.value })}
+                  testID={`job-type-${option.value}`}
+                >
+                  <View style={[styles.jobTypeRadio, active && styles.jobTypeRadioActive]}>
+                    {active ? <View style={styles.jobTypeRadioDot} /> : null}
+                  </View>
+                  <Text style={[styles.jobTypeOptionText, active && styles.jobTypeOptionTextActive]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       </BottomSheet>
 
       <BottomSheet
@@ -509,20 +620,15 @@ export default function Home() {
         title="Pilih kategori"
         testID="category-popup"
       >
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <Text style={styles.categoryPopupHint}>Kamu bisa memilih lebih dari satu kategori.</Text>
-          <View style={styles.groupChips}>
-            {CATEGORIES.map((category) => (
-              <Chip
-                key={category}
-                label={category}
-                icon={categoryIcon(category)}
-                active={filters.categories.includes(category)}
-                onPress={() => toggleCategory(category)}
-                testID={`filter-category-${category}`}
-              />
-            ))}
-          </View>
+        <View>
+          <Text style={styles.categoryPopupHint}>Pilih kelompok dulu, lalu kategori. Bisa lebih dari satu.</Text>
+          {categoryOpen ? (
+            <GroupedCategoryPicker
+              key="filter-categories"
+              selected={draftFilters.categories}
+              onToggle={toggleCategory}
+            />
+          ) : null}
           <View style={styles.categoryPopupActions}>
             <PrimaryButton
               label="Reset"
@@ -537,7 +643,7 @@ export default function Home() {
               testID="category-popup-done"
             />
           </View>
-        </ScrollView>
+        </View>
       </BottomSheet>
 
       {/* Job detail sheet */}
@@ -560,6 +666,10 @@ export default function Home() {
             </View>
             <Text style={styles.detailPay}>{formatPay(jobDetail.pay_amount, jobDetail.pay_unit)}</Text>
             <View style={styles.detailPills}>
+              <DetailPill
+                icon={jobDetail.employer_type === "usaha_perusahaan" ? "office-building" : "account-outline"}
+                text={employerTypeLabel(jobDetail.employer_type)}
+              />
               <DetailPill icon="map-marker" text={`${jobDetail.distance_km} km`} />
               <DetailPill icon="star-outline" text={jobDetail.min_experience_label} />
             </View>
@@ -605,7 +715,7 @@ export default function Home() {
         testID="screening-sheet"
       >
         {screening ? (
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <View>
             <Text style={styles.screenHint}>
               Jawab beberapa pertanyaan dari pemberi kerja agar lamaranmu lebih dilirik.
             </Text>
@@ -638,7 +748,7 @@ export default function Home() {
               }}
               style={{ marginTop: spacing.sm }}
             />
-          </ScrollView>
+          </View>
         ) : null}
       </BottomSheet>
     </View>
@@ -686,16 +796,6 @@ function TopFilterButton({
   );
 }
 
-function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  const styles = useStyles();
-  return (
-    <View style={{ marginBottom: spacing.md }}>
-      <Text style={styles.groupTitle}>{title}</Text>
-      <View style={styles.groupChips}>{children}</View>
-    </View>
-  );
-}
-
 function CategoryMark() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -717,6 +817,59 @@ function CategoryMark() {
   );
 }
 
+function RangeFilterSlider({
+  title,
+  lowValue,
+  highValue,
+  minimumValue,
+  maximumValue,
+  step,
+  formatValue,
+  onChange,
+  onDragStart,
+  onDragEnd,
+  testID,
+}: {
+  title: string;
+  lowValue: number;
+  highValue: number;
+  minimumValue: number;
+  maximumValue: number;
+  step: number;
+  formatValue: (value: number) => string;
+  onChange: (range: { low: number; high: number }) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  testID: string;
+}) {
+  const styles = useStyles();
+  return (
+    <View style={styles.sliderGroup}>
+      <View style={styles.sliderHeader}>
+        <Text style={[styles.groupTitle, styles.sliderTitle]}>{title}</Text>
+        <Text style={styles.sliderValueText}>
+          {formatValue(lowValue)} – {formatValue(highValue)}
+        </Text>
+      </View>
+      <RangeSlider
+        testID={testID}
+        minimumValue={minimumValue}
+        maximumValue={maximumValue}
+        lowValue={lowValue}
+        highValue={highValue}
+        step={step}
+        onChange={onChange}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      />
+      <View style={styles.sliderLabels}>
+        <Text style={[styles.sliderLabel, styles.sliderLabelFirst]}>{formatValue(minimumValue)}</Text>
+        <Text style={[styles.sliderLabel, styles.sliderLabelLast]}>{formatValue(maximumValue)}</Text>
+      </View>
+    </View>
+  );
+}
+
 function ContinuousFilterSlider({
   title,
   value,
@@ -724,6 +877,8 @@ function ContinuousFilterSlider({
   maximumValue,
   formatValue,
   onChange,
+  onDragStart,
+  onDragEnd,
   testID,
 }: {
   title: string;
@@ -732,6 +887,8 @@ function ContinuousFilterSlider({
   maximumValue: number;
   formatValue: (value: number) => string;
   onChange: (value: number) => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
   testID: string;
 }) {
   const styles = useStyles();
@@ -759,7 +916,11 @@ function ContinuousFilterSlider({
         maximumTrackTintColor={colors.borderStrong}
         thumbTintColor={colors.brandPrimary}
         onValueChange={setDraftValue}
-        onSlidingComplete={onChange}
+        onSlidingStart={onDragStart}
+        onSlidingComplete={(next) => {
+          onChange(next);
+          onDragEnd?.();
+        }}
         accessibilityLabel={`Filter ${title}`}
         accessibilityValue={{
           min: minimumValue,
@@ -893,8 +1054,8 @@ const useStyles = makeStyles((colors) => ({
   categoryFacetBottomRight: { left: -6, top: -6 },
   categoryPickerCopy: { flex: 1 },
   categoryPickerTitle: {
-    fontFamily: fonts.semibold,
-    fontSize: 14,
+    fontFamily: fonts.bold,
+    fontSize: 17,
     color: colors.onSurface,
   },
   categoryPickerValue: {
@@ -935,7 +1096,7 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.surface,
   },
   locationFilterCopy: { flex: 1 },
-  locationFilterTitle: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onSurface },
+  locationFilterTitle: { fontFamily: fonts.bold, fontSize: 17, color: colors.onSurface },
   locationFilterText: {
     fontFamily: fonts.regular,
     fontSize: 11,
@@ -943,6 +1104,43 @@ const useStyles = makeStyles((colors) => ({
     color: colors.muted,
     marginTop: 1,
   },
+  jobTypeBlock: { marginTop: spacing.sm, marginBottom: spacing.md },
+  jobTypeOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  jobTypeOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  jobTypeRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: colors.borderStrong,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  jobTypeRadioActive: { borderColor: colors.brandPrimary },
+  jobTypeRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.brandPrimary,
+  },
+  jobTypeOptionText: { fontFamily: fonts.medium, fontSize: 13, color: colors.onSurface },
+  jobTypeOptionTextActive: { fontFamily: fonts.semibold, color: colors.brandPrimary },
+  filterFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  filterAction: { flex: 1 },
   deckArea: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
   center: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: spacing.xl },
   skeleton: { alignItems: "center", gap: spacing.md },
@@ -999,8 +1197,7 @@ const useStyles = makeStyles((colors) => ({
     minHeight: 56,
     textAlignVertical: "top",
   },
-  groupTitle: { fontFamily: fonts.semibold, fontSize: 14, color: colors.onSurface, marginBottom: spacing.sm },
-  groupChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  groupTitle: { fontFamily: fonts.bold, fontSize: 17, color: colors.onSurface, marginBottom: spacing.sm },
   sliderGroup: { marginBottom: spacing.md },
   sliderHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sliderTitle: { marginBottom: 0 },

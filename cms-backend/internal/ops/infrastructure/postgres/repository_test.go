@@ -23,6 +23,19 @@ func TestListSQLWhitelistsResourcesAndOmitsSensitiveContent(t *testing.T) {
 	}
 }
 
+func TestListSQLMatchesFiltersActiveJobsAndSearchesNames(t *testing.T) {
+	query, _, args, err := listSQL("matches", map[string]string{"status": "active", "q": "Prayoga"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(query, "m.job_done = FALSE") || !strings.Contains(query, "wu.name") {
+		t.Fatalf("matches query missing status or name search: %s", query)
+	}
+	if len(args) != 8 || args[0] != "%Prayoga%" {
+		t.Fatalf("matches search args = %#v", args)
+	}
+}
+
 func TestListSQLUsesParametersForFilters(t *testing.T) {
 	query, _, args, err := listSQL("users", map[string]string{"q": "x%' OR true --", "status": "active"})
 	if err != nil {

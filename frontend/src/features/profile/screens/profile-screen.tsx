@@ -1,23 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactNode } from "react";
 import {
   ActivityIndicator,
-  Animated,
   Pressable,
   ScrollView,
   Text,
   View,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "@/src/features/auth/auth-context";
 import { fetchProfileHistory } from "@/src/features/profile/services/profile-service";
+import { BottomSheet } from "@/src/components/bottom-sheet";
 import { BrandLockup, CategoryAvatar, Icon, PrimaryButton } from "@/src/components/ui";
-import { categoryIcon } from "@/src/constants";
+import { categoryIcon, employerTypeLabel } from "@/src/constants";
+import { useAppLayout } from "@/src/layout/phone-frame";
 import { usesNativeTabs } from "@/src/utils/navigation";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
@@ -31,7 +30,7 @@ const BACKDROP_ICONS = [
   { icon: "chef-hat", top: 220, left: -14, size: 46, tone: 1, rotate: "-7deg" },
   { icon: "laptop", top: 230, right: -14, size: 50, tone: 2, rotate: "6deg" },
   { icon: "sprout", top: 302, left: 12, size: 42, tone: 0, rotate: "-5deg" },
-  { icon: "wrench-outline", top: 304, right: 17, size: 40, tone: 1, rotate: "9deg" },
+  { icon: "wrench", top: 304, right: 17, size: 40, tone: 1, rotate: "9deg" },
 ] as const;
 
 const STATUS_LABELS: Record<string, string> = {
@@ -46,6 +45,14 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function Profile() {
   const insets = useSafeAreaInsets();
+  const { width } = useAppLayout();
+  const fit = Math.min(1, Math.max(0.86, width / 430));
+  const sideInset = Math.round(Math.max(22, Math.min(32, width * 0.07)));
+  const boxSize = Math.round(Math.min(width - sideInset * 2, 276));
+  const pad = Math.round(14 * fit);
+  const stackGap = Math.round(8 * fit);
+  const avatarSize = Math.round(76 * fit);
+  const shellSize = Math.round(84 * fit);
   const { colors } = useTheme();
   const styles = useStyles();
   const router = useRouter();
@@ -53,14 +60,6 @@ export default function Profile() {
   const refreshUserRef = useRef(refreshUser);
   refreshUserRef.current = refreshUser;
   const [tab, setTab] = useState<ProfileTab>("employer");
-  const [contentHeight, setContentHeight] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [isScrolling, setIsScrolling] = useState(false);
-  const [atBottom, setAtBottom] = useState(false);
-  const scrollOffset = useRef(0);
-  const scrollStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const indicatorOpacity = useRef(new Animated.Value(0)).current;
-  const indicatorTranslateY = useRef(new Animated.Value(0)).current;
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["profile-history"],
@@ -83,72 +82,10 @@ export default function Profile() {
   const bottomChrome = usesNativeTabs ? insets.bottom : 0;
   const verification = verificationDisplay(user?.verification_status, colors);
   const completeness = profileCompleteness(profile, user);
-  const isScrollable = contentHeight > viewportHeight + spacing.sm;
-
-  useEffect(() => {
-    const visible = isScrollable && !isScrolling && !atBottom;
-    Animated.timing(indicatorOpacity, {
-      toValue: visible ? 1 : 0,
-      duration: visible ? 220 : 140,
-      useNativeDriver: true,
-    }).start();
-
-    if (!visible) {
-      indicatorTranslateY.setValue(0);
-      return;
-    }
-
-    const bob = Animated.loop(
-      Animated.sequence([
-        Animated.timing(indicatorTranslateY, {
-          toValue: 3,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-        Animated.timing(indicatorTranslateY, {
-          toValue: 0,
-          duration: 700,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    bob.start();
-    return () => bob.stop();
-  }, [atBottom, indicatorOpacity, indicatorTranslateY, isScrollable, isScrolling]);
-
-  useEffect(() => () => {
-    if (scrollStopTimer.current) clearTimeout(scrollStopTimer.current);
-  }, []);
-
-  function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    scrollOffset.current = contentOffset.y;
-    const reachedBottom =
-      contentOffset.y + layoutMeasurement.height >= contentSize.height - spacing.md;
-    setAtBottom(reachedBottom);
-    setIsScrolling(true);
-    if (scrollStopTimer.current) clearTimeout(scrollStopTimer.current);
-    scrollStopTimer.current = setTimeout(() => setIsScrolling(false), 180);
-  }
-
-  function handleContentSizeChange(height: number) {
-    setContentHeight(height);
-    setAtBottom(scrollOffset.current + viewportHeight >= height - spacing.md);
-  }
-
-  function handleViewportLayout(height: number) {
-    setViewportHeight(height);
-    setAtBottom(scrollOffset.current + height >= contentHeight - spacing.md);
-  }
-
-  function stopScrolling() {
-    if (scrollStopTimer.current) clearTimeout(scrollStopTimer.current);
-    setIsScrolling(false);
-  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]} testID="profile-screen">
-      <View style={styles.stickyHero}>
+      <View style={[styles.stickyHero, { paddingHorizontal: sideInset }]}>
         <ProfileBackdrop />
         <View style={styles.brandRow}>
           <BrandLockup compact />
@@ -159,36 +96,49 @@ export default function Profile() {
           locations={[0, 0.5, 1]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={styles.hero}
+          style={[
+            styles.hero,
+            {
+              width: boxSize,
+              height: boxSize,
+              paddingTop: pad,
+              paddingBottom: pad,
+              paddingHorizontal: pad,
+            },
+          ]}
         >
-          <View style={[styles.heroDecoration, styles.heroDecorationLeft]}>
-            <Icon name="camera-outline" size={20} color={colors.onBrandPrimary} />
+          <View style={[styles.heroDecoration, styles.heroDecorationLeft, { width: Math.round(36 * fit), height: Math.round(36 * fit) }]}>
+            <Icon name="camera" size={Math.round(16 * fit)} color={colors.onBrandPrimary} />
           </View>
-          <View style={[styles.heroDecoration, styles.heroDecorationRight]}>
-            <Icon name="store-outline" size={21} color={colors.onBrandPrimary} />
+          <View style={[styles.heroDecoration, styles.heroDecorationRight, { width: Math.round(36 * fit), height: Math.round(36 * fit) }]}>
+            <Icon name="store" size={Math.round(16 * fit)} color={colors.onBrandPrimary} />
           </View>
-          <View style={[styles.heroDecoration, styles.heroDecorationBottom]}>
-            <Icon name="school-outline" size={18} color={colors.onBrandPrimary} />
+          <View style={[styles.heroDecoration, styles.heroDecorationBottom, { width: Math.round(30 * fit), height: Math.round(30 * fit) }]}>
+            <Icon name="school" size={Math.round(14 * fit)} color={colors.onBrandPrimary} />
           </View>
-          <View style={styles.avatarShell}>
+          <View style={[styles.avatarShell, { width: shellSize, height: shellSize, borderRadius: shellSize / 2 }]}>
             <CategoryAvatar
               category={profile?.category}
               photo={profile?.photo_url || user?.picture}
-              size={104}
+              size={avatarSize}
               variant="inverse"
             />
           </View>
-          <View style={styles.greetingRow}>
-            <Text style={styles.greeting}>Senang ketemu kamu</Text>
-            <Icon name="hand-wave-outline" size={15} color={colors.onBrandPrimary} />
+          <View style={[styles.greetingRow, { marginTop: stackGap }]}>
+            <Text style={[styles.greeting, { fontSize: Math.round(11 * fit) }]}>Senang ketemu kamu</Text>
+            <Icon name="hand-wave" size={Math.round(13 * fit)} color={colors.onBrandPrimary} />
           </View>
-          <Text style={styles.name}>{user?.name || "Teman Kerjo"}</Text>
-          <Text style={styles.email}>{user?.email}</Text>
+          <Text style={[styles.name, { fontSize: Math.round(19 * fit), lineHeight: Math.round(24 * fit), marginTop: 2 }]} numberOfLines={2}>
+            {profile?.name || user?.name || "Teman Kerjo"}
+          </Text>
+          <Text style={[styles.email, { fontSize: Math.round(11 * fit), lineHeight: Math.round(15 * fit) }]} numberOfLines={1}>
+            {user?.email}
+          </Text>
 
           <Pressable
             style={({ pressed }) => [
               styles.verifyButton,
-              { backgroundColor: verification.background },
+              { backgroundColor: verification.background, marginTop: stackGap },
               pressed && styles.pressed,
             ]}
             onPress={() => router.push("/verification")}
@@ -204,31 +154,17 @@ export default function Profile() {
           </Pressable>
 
           {ratings?.combined?.count ? (
-            <View style={styles.ratingLine}>
+            <View style={[styles.ratingLine, { marginTop: stackGap }]}>
               <View style={styles.ratingBadge}>
                 <Icon name="star" size={16} color={colors.onBrandPrimary} />
                 <Text style={styles.ratingValue}>{ratings.combined.average.toFixed(1)}</Text>
               </View>
-              <Text style={styles.ratingCopy}>
+              <Text style={styles.ratingCopy} numberOfLines={2}>
                 {ratings.combined.count} ulasan · {ratingBreakdownText(ratings)}
               </Text>
             </View>
           ) : null}
         </LinearGradient>
-
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.scrollAffordance,
-            {
-              opacity: indicatorOpacity,
-              transform: [{ translateY: indicatorTranslateY }],
-            },
-          ]}
-        >
-          <View style={styles.scrollAffordanceBar} />
-          <Icon name="chevron-down" size={16} color={colors.brandPrimary} />
-        </Animated.View>
       </View>
 
       <ScrollView
@@ -238,26 +174,19 @@ export default function Profile() {
           styles.scrollContent,
           { paddingBottom: bottomChrome + spacing["2xl"] },
         ]}
-        onLayout={(event) => handleViewportLayout(event.nativeEvent.layout.height)}
-        onContentSizeChange={(_, height) => handleContentSizeChange(height)}
-        onScroll={handleScroll}
-        onScrollBeginDrag={() => setIsScrolling(true)}
-        onMomentumScrollBegin={() => setIsScrolling(true)}
-        onMomentumScrollEnd={stopScrolling}
-        scrollEventThrottle={16}
       >
         <View style={styles.roleSection}>
           <Text style={styles.roleLabel}>Kamu di Kerjo sebagai</Text>
           <View style={styles.tabs} testID="profile-role-tabs">
             <ProfileTabButton
-              icon="account-hard-hat-outline"
+              icon="account-hard-hat"
               label="Pencari Kerja"
               active={tab === "worker"}
               onPress={() => setTab("worker")}
               testID="profile-tab-worker"
             />
             <ProfileTabButton
-              icon="storefront-outline"
+              icon="storefront"
               label="Pemberi Kerja"
               active={tab === "employer"}
               onPress={() => setTab("employer")}
@@ -281,7 +210,15 @@ export default function Profile() {
             onEditProfile={() => router.push("/onboarding")}
           />
         ) : (
-          <EmployerView jobs={employerJobs} reviews={ratingsGiven} ratings={ratings} />
+          <EmployerView
+            profile={profile}
+            jobs={employerJobs}
+            reviews={ratingsGiven}
+            ratings={ratings}
+            onEditJob={(jobID) => router.push(`/post-job?jobId=${encodeURIComponent(jobID)}`)}
+            onOpenApplicants={(jobID) => router.push(jobID ? `/applicants?jobId=${encodeURIComponent(jobID)}` : "/applicants")}
+            onOpenWorker={(workerID) => router.push(`/worker/${encodeURIComponent(workerID)}`)}
+          />
         )}
 
         <View style={styles.accountActions}>
@@ -363,7 +300,7 @@ function verificationDisplay(status: string | undefined, colors: any) {
     case "pending":
       return {
         label: "Verifikasi sedang diperiksa",
-        icon: "clock-outline",
+        icon: "clock",
         iconColor: colors.brandDeep,
         textColor: colors.onSurface,
         chevronColor: colors.muted,
@@ -373,7 +310,7 @@ function verificationDisplay(status: string | undefined, colors: any) {
     case "rejected":
       return {
         label: "Verifikasi perlu diperbaiki",
-        icon: "alert-circle-outline",
+        icon: "alert-circle",
         iconColor: colors.error,
         textColor: colors.onSurface,
         chevronColor: colors.muted,
@@ -437,115 +374,334 @@ function WorkerView({
   completeness: number;
   onEditProfile: () => void;
 }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [detail, setDetail] = useState<any | null>(null);
   const matched = jobs.filter((job) => ["aligned", "scheduled", "completed"].includes(job.status)).length;
+  const profileSummary = [profile?.category, profile?.rate].filter(Boolean).join(" · ") || "Lengkapi data diri kamu";
   return (
     <>
       <ProfileProgress value={completeness} onPress={onEditProfile} />
-      <WorkerProfileCard profile={profile} onEditProfile={onEditProfile} />
+      <SummaryRow
+        icon="account-hard-hat"
+        title="Data Kerja"
+        subtitle={profileSummary}
+        onPress={() => setDetail({ type: "profile" })}
+        testID="worker-profile-summary"
+      />
       <ActivityStrip
         items={[
-          { icon: "heart-outline", value: jobs.length, label: "Diminati" },
-          { icon: "handshake-outline", value: matched, label: "Cocok" },
-          { icon: "star-outline", value: reviews.length, label: "Ulasan" },
+          { icon: "heart", value: jobs.length, label: "Diminati" },
+          { icon: "handshake", value: matched, label: "Cocok" },
+          { icon: "star", value: reviews.length, label: "Ulasan" },
         ]}
       />
       <JourneySection
         title="Yang Pernah Kamu Kerjakan"
-        subtitle="Cerita kerja kamu tersimpan rapi di sini."
+        subtitle="Orang dan tempat kerja yang pernah kamu minati."
         emptyTitle="Belum ada riwayat."
         emptyCopy="Yuk mulai dari satu pekerjaan pertama."
       >
         {jobs.map((job) => (
-          <HistoryItem
+          <PersonCard
             key={`${job.id}-${job.match_id ?? "swipe"}`}
-            icon="briefcase-outline"
-            title={job.title}
-            subtitle={job.business}
+            name={job.employer_name || job.business}
+            photo={job.employer_photo}
+            subtitle={[job.title, job.business].filter(Boolean).join(" · ")}
             status={job.status}
+            onPress={() => setDetail({ type: "person", side: "employer", job })}
+            testID={`worker-history-${job.id}`}
           />
         ))}
       </JourneySection>
       {reviews.length ? (
-        <ReviewsSection title="Cerita dari Pemberi Kerja" reviews={reviews} />
+        <JourneySection title="Cerita dari Pemberi Kerja" subtitle="" emptyTitle="" emptyCopy="">
+          {reviews.map((review) => (
+            <SummaryRow
+              key={review.id}
+              icon="account"
+              title={review.counterparty}
+              subtitle={review.comment || "Tidak ada komentar"}
+              meta={`${Number(review.rating).toFixed(1)} ★`}
+              onPress={() => setDetail({ type: "review", review })}
+              testID={`review-history-${review.id}`}
+            />
+          ))}
+        </JourneySection>
       ) : null}
+      <BottomSheet
+        visible={!!detail}
+        title={
+          detail?.type === "profile"
+            ? "Data Kerja"
+            : detail?.type === "person"
+              ? detail.job.employer_name || detail.job.business
+              : detail?.review?.counterparty
+        }
+        onClose={() => setDetail(null)}
+        testID="worker-detail-sheet"
+      >
+        {detail?.type === "profile" ? (
+          <View style={styles.detailStack}>
+            <DetailRow icon={categoryIcon(profile?.category)} label="Kategori" value={profile?.category || "Belum diisi"} />
+            <DetailRow icon="cash" label="Tarif" value={profile?.rate || "Belum diisi"} />
+            <DetailRow icon="briefcase" label="Pengalaman" value={profile?.experience_label || "Belum diisi"} />
+            {profile?.last_education ? (
+              <DetailRow icon="school" label="Pendidikan" value={profile.last_education} />
+            ) : null}
+            <Pressable
+              style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+              onPress={() => {
+                setDetail(null);
+                onEditProfile();
+              }}
+              testID="edit-profile"
+            >
+              <Icon name="pencil" size={18} color={colors.brandPrimary} />
+              <Text style={styles.editButtonText}>{profile ? "Edit Data" : "Lengkapi Data"}</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {detail?.type === "person" ? (
+          <PersonDetail
+            name={detail.job.employer_name || detail.job.business}
+            photo={detail.job.employer_photo}
+            facts={[
+              { icon: employerTypeIcon(detail.job.employer_type), label: "Tipe", value: employerTypeLabel(detail.job.employer_type) },
+              { icon: "store", label: "Usaha", value: detail.job.business },
+              { icon: "briefcase", label: "Lowongan", value: detail.job.title },
+              { icon: "circle-medium", label: "Status", value: STATUS_LABELS[detail.job.status] ?? detail.job.status },
+            ]}
+            questions={detail.job.screening_questions}
+            answers={detail.job.screening_answers}
+          />
+        ) : null}
+        {detail?.type === "review" ? (
+          <View style={styles.detailStack}>
+            <DetailRow icon="star" label="Rating" value={Number(detail.review.rating).toFixed(1)} />
+            <Text style={styles.reviewDetailComment}>
+              {detail.review.comment || "Tidak ada komentar"}
+            </Text>
+          </View>
+        ) : null}
+      </BottomSheet>
     </>
   );
 }
 
-function EmployerView({ jobs, reviews, ratings }: { jobs: any[]; reviews: any[]; ratings: any }) {
+function EmployerView({
+  profile,
+  jobs,
+  reviews,
+  ratings,
+  onEditJob,
+  onOpenApplicants,
+  onOpenWorker,
+}: {
+  profile: any;
+  jobs: any[];
+  reviews: any[];
+  ratings: any;
+  onEditJob: (jobID: string) => void;
+  onOpenApplicants: (jobID?: string) => void;
+  onOpenWorker: (workerID: string) => void;
+}) {
   const applicantCount = jobs.reduce((total, job) => total + Number(job.applicant_count || 0), 0);
   const matchCount = jobs.reduce((total, job) => total + Number(job.match_count || 0), 0);
   const latestBusiness = jobs[0]?.business;
+  const employerType = jobs[0]?.employer_type ?? profile?.employer_type;
   const employerRating = ratings?.employer;
   const styles = useStyles();
   const { colors } = useTheme();
+  const [detail, setDetail] = useState<any | null>(null);
+  const ratingLabel = employerRating?.count
+    ? `${employerRating.average.toFixed(1)} dari ${employerRating.count} ulasan`
+    : "Belum ada ulasan";
+  const profileSummary = [employerTypeLabel(employerType), latestBusiness].filter(Boolean).join(" · ")
+    || "Belum ada data";
+  const applicants = jobs.flatMap((job) =>
+    (job.applicant_responses ?? []).map((person: any, index: number) => ({
+      ...person,
+      job,
+      key: `${person.worker_id ?? person.worker_name}-${job.id}-${index}`,
+    })),
+  );
 
   return (
     <>
-      <View style={styles.profileCard}>
-        <View style={styles.profileCardHead}>
-          <View style={styles.profileCardIcon}>
-            <Icon name="storefront-outline" size={22} color={colors.brandPrimary} />
-          </View>
-          <View style={styles.profileCardCopy}>
-            <Text style={styles.profileCardTitle}>Data Pemberi Kerja</Text>
-            <Text style={styles.profileCardSubtitle}>
-              Tempat kamu melihat lowongan dan orang-orang yang tertarik.
-            </Text>
-          </View>
-        </View>
-        <View style={styles.employerSummary}>
-          <DetailRow
-            icon="store-outline"
-            label="Usaha / keluarga"
-            value={latestBusiness || "Belum ada lowongan"}
-          />
-          <DetailRow
-            icon="star-outline"
-            label="Rating"
-            value={employerRating?.count ? `${employerRating.average.toFixed(1)} dari ${employerRating.count} ulasan` : "Belum ada ulasan"}
-          />
-        </View>
-      </View>
-
+      <SummaryRow
+        icon="storefront"
+        title="Data Pemberi Kerja"
+        subtitle={profileSummary}
+        onPress={() => setDetail({ type: "profile" })}
+        testID="employer-profile-summary"
+      />
       <ActivityStrip
         items={[
-          { icon: "briefcase-outline", value: jobs.length, label: "Lowongan" },
-          { icon: "account-heart-outline", value: applicantCount, label: "Pelamar" },
-          { icon: "handshake-outline", value: matchCount, label: "Cocok" },
+          { icon: "briefcase", value: jobs.length, label: "Lowongan" },
+          { icon: "account-heart", value: applicantCount, label: "Pelamar", onPress: () => onOpenApplicants() },
+          { icon: "handshake", value: matchCount, label: "Cocok" },
         ]}
       />
-
       <JourneySection
         title="Lowongan yang Kamu Pasang"
-        subtitle="Pantau perjalanan lowonganmu dengan santai."
+        subtitle="Pantau lowonganmu tanpa scroll panjang."
         emptyTitle="Belum ada lowongan."
         emptyCopy="Kalau sudah siap, pasang pekerjaan pertamamu."
       >
         {jobs.map((job) => (
-          <View key={job.id} style={styles.historyCard}>
-            <View style={styles.historyMain}>
-              <View style={styles.historyIcon}>
-                <Icon name="briefcase-outline" size={19} color={colors.brandPrimary} />
-              </View>
-              <View style={styles.historyCopy}>
-                <Text style={styles.itemTitle}>{job.title}</Text>
-                <Text style={styles.itemSubtitle}>{job.business}</Text>
-              </View>
-              <StatusPill status={job.status} />
-            </View>
-            <View style={styles.metrics}>
-              <Metric icon="account-check-outline" value={`${job.people_filled}/${job.people_needed}`} label="terisi" />
-              <Metric icon="account-multiple-outline" value={String(job.applicant_count)} label="pelamar" />
-              <Metric icon="handshake-outline" value={String(job.match_count)} label="cocok" />
-            </View>
-          </View>
+          <SummaryRow
+            key={job.id}
+            icon="briefcase"
+            title={job.title}
+            subtitle={job.business}
+            status={job.status}
+            meta={`${job.people_filled}/${job.people_needed} terisi · ${job.applicant_count} pelamar`}
+            onPress={() => setDetail({ type: "job", job })}
+            testID={`employer-history-${job.id}`}
+          />
         ))}
       </JourneySection>
-
+      <JourneySection
+        title="Pelamar"
+        subtitle="Setiap orang tampil singkat. Ketuk untuk lihat detail."
+        emptyTitle="Belum ada pelamar."
+        emptyCopy="Kalau sudah ada yang tertarik, namanya muncul di sini."
+      >
+        {applicants.map((person) => (
+          <PersonCard
+            key={person.key}
+            name={person.worker_name || "Pelamar"}
+            photo={person.photo_url}
+            category={person.category}
+            subtitle={[person.category, person.job?.title].filter(Boolean).join(" · ")}
+            onPress={() => setDetail({ type: "person", side: "worker", person, job: person.job })}
+            testID={`employer-applicant-${person.key}`}
+          />
+        ))}
+      </JourneySection>
       {reviews.length ? (
-        <ReviewsSection title="Ulasan yang Kamu Berikan" reviews={reviews} />
+        <JourneySection title="Ulasan yang Kamu Berikan" subtitle="" emptyTitle="" emptyCopy="">
+          {reviews.map((review) => (
+            <SummaryRow
+              key={review.id}
+              icon="account"
+              title={review.counterparty}
+              subtitle={review.comment || "Tidak ada komentar"}
+              meta={`${Number(review.rating).toFixed(1)} ★`}
+              onPress={() => setDetail({ type: "review", review })}
+              testID={`review-history-${review.id}`}
+            />
+          ))}
+        </JourneySection>
       ) : null}
+      <BottomSheet
+        visible={!!detail}
+        title={
+          detail?.type === "profile"
+            ? "Data Pemberi Kerja"
+            : detail?.type === "job"
+              ? detail.job.title
+              : detail?.type === "person"
+                ? detail.person?.worker_name || "Pelamar"
+                : detail?.review?.counterparty
+        }
+        onClose={() => setDetail(null)}
+        testID="employer-detail-sheet"
+      >
+        {detail?.type === "profile" ? (
+          <View style={styles.detailStack}>
+            <DetailRow
+              icon={employerType === "usaha_perusahaan" ? "office-building" : "account"}
+              label="Tipe pemberi kerja"
+              value={employerTypeLabel(employerType)}
+            />
+            <DetailRow icon="store" label="Usaha / keluarga" value={latestBusiness || "Belum ada lowongan"} />
+            <DetailRow icon="star" label="Rating" value={ratingLabel} />
+          </View>
+        ) : null}
+        {detail?.type === "job" ? (
+          <View style={styles.detailStack}>
+            <DetailRow icon="store" label="Usaha" value={detail.job.business} />
+            <DetailRow icon="circle-medium" label="Status" value={STATUS_LABELS[detail.job.status] ?? detail.job.status} />
+            <View style={styles.metrics}>
+              <Metric icon="account-check" value={`${detail.job.people_filled}/${detail.job.people_needed}`} label="terisi" />
+              <Pressable
+                onPress={() => {
+                  const jobID = detail.job.id;
+                  setDetail(null);
+                  onOpenApplicants(jobID);
+                }}
+                testID={`history-applicants-${detail.job.id}`}
+              >
+                <Metric icon="account-multiple" value={String(detail.job.applicant_count)} label="pelamar" />
+              </Pressable>
+              <Metric icon="handshake" value={String(detail.job.match_count)} label="cocok" />
+            </View>
+            {(detail.job.applicant_responses ?? []).length ? (
+              <View style={styles.personList}>
+                {detail.job.applicant_responses.map((person: any, index: number) => (
+                  <PersonCard
+                    key={`${person.worker_id ?? person.worker_name}-${index}`}
+                    name={person.worker_name || "Pelamar"}
+                    photo={person.photo_url}
+                    category={person.category}
+                    subtitle={[person.category, person.experience_label].filter(Boolean).join(" · ")}
+                    onPress={() => setDetail({ type: "person", side: "worker", person, job: detail.job })}
+                    testID={`job-applicant-${person.worker_id ?? index}`}
+                  />
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.itemSubtitle}>Belum ada pelamar.</Text>
+            )}
+            <Pressable
+              style={styles.editJobButton}
+              onPress={() => {
+                const jobID = detail.job.id;
+                setDetail(null);
+                onEditJob(jobID);
+              }}
+            >
+              <Icon name="pencil" size={16} color={colors.brandPrimary} />
+              <Text style={styles.editJobText}>Edit lowongan</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        {detail?.type === "person" ? (
+          <PersonDetail
+            name={detail.person.worker_name || "Pelamar"}
+            photo={detail.person.photo_url}
+            category={detail.person.category}
+            facts={[
+              { icon: categoryIcon(detail.person.category), label: "Kategori", value: detail.person.category || "Belum diisi" },
+              { icon: "briefcase", label: "Pengalaman", value: detail.person.experience_label || "Belum diisi" },
+              { icon: "school", label: "Pendidikan", value: detail.person.last_education || "Belum diisi" },
+              { icon: "cash", label: "Tarif", value: detail.person.rate || "Belum diisi" },
+              { icon: "store", label: "Melamar", value: detail.job?.title || "-" },
+            ]}
+            bio={detail.person.bio}
+            questions={detail.person.screening_questions}
+            answers={detail.person.screening_answers}
+            action={detail.person.worker_id ? {
+              label: "Lihat profil",
+              onPress: () => {
+                const workerID = detail.person.worker_id;
+                setDetail(null);
+                onOpenWorker(workerID);
+              },
+            } : undefined}
+          />
+        ) : null}
+        {detail?.type === "review" ? (
+          <View style={styles.detailStack}>
+            <DetailRow icon="star" label="Rating" value={Number(detail.review.rating).toFixed(1)} />
+            <Text style={styles.reviewDetailComment}>
+              {detail.review.comment || "Tidak ada komentar"}
+            </Text>
+          </View>
+        ) : null}
+      </BottomSheet>
     </>
   );
 }
@@ -579,53 +735,98 @@ function ProfileProgress({ value, onPress }: { value: number; onPress: () => voi
   );
 }
 
-function WorkerProfileCard({ profile, onEditProfile }: { profile: any; onEditProfile: () => void }) {
+function ProfileSummaryCard({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  testID,
+}: {
+  icon: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  testID: string;
+}) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={styles.profileCard}>
-      <View style={styles.profileCardHead}>
+    <Pressable
+      style={({ pressed }) => [styles.profileCard, styles.profileSummaryCard, pressed && styles.pressed]}
+      onPress={onPress}
+      testID={testID}
+    >
+      <View style={styles.profileSummaryHead}>
         <View style={styles.profileCardIcon}>
-          <Icon name="account-hard-hat-outline" size={22} color={colors.brandPrimary} />
+          <Icon name={icon} size={22} color={colors.brandPrimary} />
         </View>
         <View style={styles.profileCardCopy}>
-          <Text style={styles.profileCardTitle}>Data Kerja</Text>
-          <Text style={styles.profileCardSubtitle}>
-            Lengkapi data diri biar orang yang cocok lebih gampang menemukan kamu.
-          </Text>
+          <Text style={styles.profileCardTitle}>{title}</Text>
+          <Text style={styles.profileCardSubtitle} numberOfLines={1}>{subtitle}</Text>
         </View>
+        <Icon name="chevron-right" size={22} color={colors.muted} />
       </View>
+    </Pressable>
+  );
+}
 
-      <View style={styles.profileDetails}>
-        <InfoTile
-          icon={categoryIcon(profile?.category)}
-          label="Kategori"
-          value={profile?.category || "Belum diisi"}
-        />
-        <InfoTile icon="cash" label="Tarif" value={profile?.rate || "Belum diisi"} />
-        <InfoTile
-          icon="briefcase-outline"
-          label="Pengalaman"
-          value={profile?.experience_label || "Belum diisi"}
-        />
-      </View>
-
-      <Pressable
-        style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
-        onPress={onEditProfile}
-        testID="edit-profile"
+function WorkerProfileCard({ profile, onEditProfile }: { profile: any; onEditProfile: () => void }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [open, setOpen] = useState(false);
+  const summary = [profile?.category, profile?.rate].filter(Boolean).join(" · ")
+    || "Lengkapi data diri kamu";
+  return (
+    <>
+      <ProfileSummaryCard
+        icon="account-hard-hat"
+        title="Data Kerja"
+        subtitle={summary}
+        onPress={() => setOpen(true)}
+        testID="worker-profile-summary"
+      />
+      <HistoryDetailSheet
+        visible={open}
+        title="Data Kerja"
+        onClose={() => setOpen(false)}
+        testID="worker-profile-detail"
       >
-        <Icon name="pencil-outline" size={18} color={colors.brandPrimary} />
-        <Text style={styles.editButtonText}>{profile ? "Edit Data" : "Lengkapi Data"}</Text>
-      </Pressable>
-    </View>
+        <View style={styles.employerSummary}>
+          <DetailRow
+            icon={categoryIcon(profile?.category)}
+            label="Kategori"
+            value={profile?.category || "Belum diisi"}
+          />
+          <DetailRow icon="cash" label="Tarif" value={profile?.rate || "Belum diisi"} />
+          <DetailRow
+            icon="briefcase"
+            label="Pengalaman"
+            value={profile?.experience_label || "Belum diisi"}
+          />
+          {profile?.last_education ? (
+            <DetailRow icon="school" label="Pendidikan" value={profile.last_education} />
+          ) : null}
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          onPress={() => {
+            setOpen(false);
+            onEditProfile();
+          }}
+          testID="edit-profile"
+        >
+          <Icon name="pencil" size={18} color={colors.brandPrimary} />
+          <Text style={styles.editButtonText}>{profile ? "Edit Data" : "Lengkapi Data"}</Text>
+        </Pressable>
+      </HistoryDetailSheet>
+    </>
   );
 }
 
 function ActivityStrip({
   items,
 }: {
-  items: { icon: string; value: number; label: string }[];
+  items: { icon: string; value: number; label: string; onPress?: () => void }[];
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -633,13 +834,29 @@ function ActivityStrip({
     <View style={styles.activitySection}>
       <Text style={styles.sectionTitle}>Aktivitas Kamu</Text>
       <View style={styles.activityCard}>
-        {items.map((item, index) => (
-          <View key={item.label} style={[styles.activityItem, index > 0 && styles.activityDivider]}>
-            <Icon name={item.icon} size={20} color={colors.brandPrimary} />
-            <Text style={styles.activityValue}>{item.value}</Text>
-            <Text style={styles.activityLabel}>{item.label}</Text>
-          </View>
-        ))}
+        {items.map((item, index) => {
+          const body = (
+            <>
+              <Icon name={item.icon} size={20} color={colors.brandPrimary} />
+              <Text style={styles.activityValue}>{item.value}</Text>
+              <Text style={styles.activityLabel}>{item.label}</Text>
+            </>
+          );
+          return item.onPress ? (
+            <Pressable
+              key={item.label}
+              onPress={item.onPress}
+              style={[styles.activityItem, index > 0 && styles.activityDivider]}
+              testID={`activity-${item.label.toLowerCase()}`}
+            >
+              {body}
+            </Pressable>
+          ) : (
+            <View key={item.label} style={[styles.activityItem, index > 0 && styles.activityDivider]}>
+              {body}
+            </View>
+          );
+        })}
       </View>
     </View>
   );
@@ -656,7 +873,7 @@ function JourneySection({
   subtitle: string;
   emptyTitle: string;
   emptyCopy: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const styles = useStyles();
   const count = Array.isArray(children) ? children.length : children ? 1 : 0;
@@ -676,43 +893,281 @@ function JourneySection({
   );
 }
 
-function HistoryItem({
+function SummaryRow({
   icon,
   title,
   subtitle,
   status,
+  meta,
+  onPress,
+  testID,
 }: {
   icon: string;
   title: string;
   subtitle: string;
-  status: string;
+  status?: string;
+  meta?: string;
+  onPress: () => void;
+  testID: string;
 }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={styles.historyCard}>
+    <Pressable
+      style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
+      onPress={onPress}
+      testID={testID}
+    >
       <View style={styles.historyMain}>
         <View style={styles.historyIcon}>
           <Icon name={icon} size={19} color={colors.brandPrimary} />
         </View>
         <View style={styles.historyCopy}>
-          <Text style={styles.itemTitle}>{title}</Text>
-          <Text style={styles.itemSubtitle}>{subtitle}</Text>
+          <Text style={styles.itemTitle} numberOfLines={1}>{title}</Text>
+          <Text style={styles.itemSubtitle} numberOfLines={1}>{subtitle}</Text>
+          {meta ? <Text style={styles.itemMeta} numberOfLines={1}>{meta}</Text> : null}
         </View>
-        <StatusPill status={status} />
+        {status ? <StatusPill status={status} /> : null}
+        <Icon name="chevron-right" size={20} color={colors.muted} />
       </View>
+    </Pressable>
+  );
+}
+
+function employerTypeIcon(value?: string) {
+  return value === "usaha_perusahaan" ? "office-building" : "account";
+}
+
+function PersonCard({
+  name,
+  photo,
+  category,
+  subtitle,
+  status,
+  onPress,
+  testID,
+}: {
+  name: string;
+  photo?: string;
+  category?: string;
+  subtitle?: string;
+  status?: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.personCard, pressed && styles.pressed]}
+      onPress={onPress}
+      testID={testID}
+    >
+      <CategoryAvatar category={category} photo={photo} size={44} />
+      <View style={styles.historyCopy}>
+        <Text style={styles.itemTitle} numberOfLines={1}>{name}</Text>
+        {subtitle ? <Text style={styles.itemSubtitle} numberOfLines={1}>{subtitle}</Text> : null}
+      </View>
+      {status ? <StatusPill status={status} /> : null}
+      <Icon name="chevron-right" size={20} color={colors.muted} />
+    </Pressable>
+  );
+}
+
+function PersonDetail({
+  name,
+  photo,
+  category,
+  facts,
+  bio,
+  questions,
+  answers,
+  action,
+}: {
+  name: string;
+  photo?: string;
+  category?: string;
+  facts: { icon: string; label: string; value: string }[];
+  bio?: string;
+  questions?: string[];
+  answers?: string[];
+  action?: { label: string; onPress: () => void };
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <View style={styles.detailStack}>
+      <View style={styles.personRow}>
+        <CategoryAvatar category={category} photo={photo} size={52} />
+        <View style={styles.historyCopy}>
+          <Text style={styles.itemTitle}>{name}</Text>
+          {category ? <Text style={styles.itemSubtitle}>{category}</Text> : null}
+        </View>
+      </View>
+      {facts.map((fact) => (
+        <DetailRow key={fact.label} icon={fact.icon} label={fact.label} value={fact.value} />
+      ))}
+      {bio ? <Text style={styles.reviewDetailComment}>{bio}</Text> : null}
+      <ScreeningHistory questions={questions} answers={answers} />
+      {action ? (
+        <Pressable style={({ pressed }) => [styles.editButton, pressed && styles.pressed]} onPress={action.onPress}>
+          <Icon name="account" size={18} color={colors.brandPrimary} />
+          <Text style={styles.editButtonText}>{action.label}</Text>
+        </Pressable>
+      ) : null}
     </View>
+  );
+}
+
+function HistoryDetailSheet({
+  visible,
+  title,
+  onClose,
+  testID,
+  children,
+}: {
+  visible: boolean;
+  title?: string;
+  onClose: () => void;
+  testID: string;
+  children: ReactNode;
+}) {
+  const styles = useStyles();
+  return (
+    <BottomSheet visible={visible} onClose={onClose} title={title} testID={testID}>
+      <ScrollView
+        style={styles.historyDetailScroll}
+        contentContainerStyle={styles.historyDetailContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
+    </BottomSheet>
+  );
+}
+
+function PersonRow({
+  name,
+  photo,
+  category,
+  subtitle,
+  onPress,
+}: {
+  name: string;
+  photo?: string;
+  category?: string;
+  subtitle?: string;
+  onPress?: () => void;
+}) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const body = (
+    <View style={styles.personRow}>
+      <CategoryAvatar category={category} photo={photo} size={44} />
+      <View style={styles.historyCopy}>
+        <Text style={styles.itemTitle} numberOfLines={1}>{name}</Text>
+        {subtitle ? <Text style={styles.itemSubtitle} numberOfLines={2}>{subtitle}</Text> : null}
+      </View>
+      {onPress ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
+    </View>
+  );
+  if (!onPress) return body;
+  return (
+    <Pressable style={({ pressed }) => [pressed && styles.pressed]} onPress={onPress}>
+      {body}
+    </Pressable>
+  );
+}
+
+function ScreeningHistory({
+  questions,
+  answers,
+  responses,
+}: {
+  questions?: string[];
+  answers?: string[];
+  responses?: { worker_name?: string; screening_questions?: string[]; screening_answers?: string[] }[];
+}) {
+  const styles = useStyles();
+  if (Array.isArray(responses) && responses.length) {
+    return (
+      <View style={styles.screeningHistory} testID="screening-history">
+        {responses.map((response, index) => (
+          <View key={`${response.worker_name ?? "pelamar"}-${index}`} style={styles.screeningBlock}>
+            {response.worker_name ? (
+              <Text style={styles.screeningName}>{response.worker_name}</Text>
+            ) : null}
+            <ScreeningPairs questions={response.screening_questions} answers={response.screening_answers} />
+          </View>
+        ))}
+      </View>
+    );
+  }
+  if (!Array.isArray(questions) || questions.length === 0) return null;
+  return (
+    <View style={styles.screeningHistory} testID="screening-history">
+      <ScreeningPairs questions={questions} answers={answers} />
+    </View>
+  );
+}
+
+function ScreeningPairs({ questions, answers }: { questions?: string[]; answers?: string[] }) {
+  const styles = useStyles();
+  const items = (questions ?? []).length ? questions ?? [] : (answers ?? []).map((_, index) => `Pertanyaan ${index + 1}`);
+  return (
+    <>
+      {items.map((question, index) => (
+        <View key={`${question}-${index}`} style={styles.screeningPair}>
+          <Text style={styles.screeningQuestion}>{question}</Text>
+          <Text style={styles.screeningAnswer}>
+            {answers?.[index]?.trim() ? answers[index] : "— tidak dijawab —"}
+          </Text>
+        </View>
+      ))}
+    </>
   );
 }
 
 function ReviewsSection({ title, reviews }: { title: string; reviews: any[] }) {
   const styles = useStyles();
+  const { colors } = useTheme();
+  const [selectedReview, setSelectedReview] = useState<any | null>(null);
   return (
     <View style={styles.journeySection}>
       <Text style={styles.sectionTitle}>{title}</Text>
       <View style={styles.historyList}>
-        {reviews.map((review) => <ReviewRow key={review.id} review={review} />)}
+        {reviews.map((review) => (
+          <ReviewRow key={review.id} review={review} onPress={() => setSelectedReview(review)} />
+        ))}
       </View>
+      <HistoryDetailSheet
+        visible={!!selectedReview}
+        title={selectedReview?.counterparty}
+        onClose={() => setSelectedReview(null)}
+        testID="review-history-detail"
+      >
+        {selectedReview ? (
+          <View style={styles.historyCard}>
+            <View style={styles.historyMain}>
+              <View style={styles.reviewAvatar}>
+                <Icon name="account" size={19} color={colors.brandPrimary} />
+              </View>
+              <View style={styles.historyCopy}>
+                <Text style={styles.itemTitle}>{selectedReview.counterparty}</Text>
+                <View style={styles.reviewRating}>
+                  <Icon name="star" size={14} color={colors.warning} />
+                  <Text style={styles.reviewRatingText}>{Number(selectedReview.rating).toFixed(1)}</Text>
+                </View>
+              </View>
+            </View>
+            {selectedReview.comment ? (
+              <Text style={styles.reviewDetailComment}>{selectedReview.comment}</Text>
+            ) : (
+              <Text style={styles.itemSubtitle}>Tidak ada komentar</Text>
+            )}
+          </View>
+        ) : null}
+      </HistoryDetailSheet>
     </View>
   );
 }
@@ -723,7 +1178,7 @@ function StatusPill({ status }: { status: string }) {
   return (
     <View style={styles.status}>
       <Icon
-        name={status === "completed" ? "check-circle-outline" : "circle-medium"}
+        name={status === "completed" ? "check-circle" : "circle-medium"}
         size={14}
         color={colors.brandPrimary}
       />
@@ -744,35 +1199,30 @@ function Metric({ icon, value, label }: { icon: string; value: string; label: st
   );
 }
 
-function ReviewRow({ review }: { review: any }) {
+function ReviewRow({ review, onPress }: { review: any; onPress: () => void }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
-    <View style={styles.reviewCard}>
+    <Pressable
+      style={({ pressed }) => [styles.reviewCard, pressed && styles.pressed]}
+      onPress={onPress}
+      testID={`review-history-${review.id}`}
+    >
       <View style={styles.reviewAvatar}>
-        <Icon name="account-outline" size={19} color={colors.brandPrimary} />
+        <Icon name="account" size={19} color={colors.brandPrimary} />
       </View>
       <View style={styles.reviewCopy}>
-        <Text style={styles.itemTitle}>{review.counterparty}</Text>
-        {review.comment ? <Text style={styles.itemSubtitle}>{review.comment}</Text> : null}
+        <Text style={styles.itemTitle} numberOfLines={1}>{review.counterparty}</Text>
+        {review.comment ? (
+          <Text style={styles.itemSubtitle} numberOfLines={1}>{review.comment}</Text>
+        ) : null}
       </View>
       <View style={styles.reviewRating}>
         <Icon name="star" size={14} color={colors.warning} />
         <Text style={styles.reviewRatingText}>{review.rating.toFixed(1)}</Text>
       </View>
-    </View>
-  );
-}
-
-function InfoTile({ icon, label, value }: { icon: string; label: string; value: string }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  return (
-    <View style={styles.infoTile}>
-      <Icon name={icon} size={19} color={colors.brandPrimary} />
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>{value}</Text>
-    </View>
+      <Icon name="chevron-right" size={20} color={colors.muted} />
+    </Pressable>
   );
 }
 
@@ -794,7 +1244,7 @@ function DetailRow({ icon, label, value }: { icon: string; label: string; value:
 
 function profileCompleteness(profile: any, user: any) {
   const values = [
-    user?.name,
+    profile?.name || user?.name,
     profile?.photo_url || user?.picture,
     profile?.category,
     profile?.experience_label,
@@ -816,13 +1266,18 @@ function ratingBreakdownText(ratings: any) {
 const useStyles = makeStyles((colors) => ({
   container: {
     flex: 1,
+    width: "100%",
+    maxWidth: "100%",
     backgroundColor: colors.surface,
     overflow: "hidden",
   },
   stickyHero: {
     position: "relative",
     zIndex: 2,
-    paddingHorizontal: spacing.lg,
+    width: "100%",
+    maxWidth: "100%",
+    overflow: "hidden",
+    paddingHorizontal: 24,
     paddingBottom: spacing.md,
     backgroundColor: colors.surface,
     shadowColor: colors.brandPrimary,
@@ -897,6 +1352,8 @@ const useStyles = makeStyles((colors) => ({
   },
   contentScroll: {
     flex: 1,
+    width: "100%",
+    maxWidth: "100%",
     backgroundColor: colors.surfaceTertiary,
   },
   scrollContent: {
@@ -910,10 +1367,13 @@ const useStyles = makeStyles((colors) => ({
     justifyContent: "center",
   },
   hero: {
+    alignSelf: "center",
+    aspectRatio: 1,
     alignItems: "center",
-    paddingTop: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
+    justifyContent: "center",
+    paddingTop: 14,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
     borderRadius: 28,
     borderWidth: 1,
     borderColor: colors.brandDeep,
@@ -938,13 +1398,13 @@ const useStyles = makeStyles((colors) => ({
     opacity: 0.9,
   },
   heroDecorationLeft: {
-    top: 30,
+    top: 22,
     left: -8,
     transform: [{ rotate: "-9deg" }],
   },
   heroDecorationRight: {
-    top: 73,
-    right: -7,
+    top: 22,
+    right: -8,
     transform: [{ rotate: "8deg" }],
   },
   heroDecorationBottom: {
@@ -953,30 +1413,6 @@ const useStyles = makeStyles((colors) => ({
     width: 40,
     height: 40,
     transform: [{ rotate: "5deg" }],
-  },
-  scrollAffordance: {
-    position: "absolute",
-    left: "50%",
-    bottom: -13,
-    width: 38,
-    height: 28,
-    marginLeft: -19,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.94)",
-    shadowColor: colors.brandPrimary,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 7,
-    elevation: 3,
-  },
-  scrollAffordanceBar: {
-    width: 13,
-    height: 2,
-    borderRadius: radius.pill,
-    backgroundColor: colors.brandPrimary,
-    marginBottom: -3,
   },
   avatarShell: {
     width: 114,
@@ -1002,9 +1438,11 @@ const useStyles = makeStyles((colors) => ({
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.xs,
-    marginTop: spacing.md,
+    marginTop: 10,
   },
   name: {
+    width: "100%",
+    maxWidth: "100%",
     fontFamily: fonts.bold,
     fontSize: 23,
     lineHeight: 30,
@@ -1012,17 +1450,23 @@ const useStyles = makeStyles((colors) => ({
     color: colors.onBrandPrimary,
     marginTop: 2,
     textAlign: "center",
+    paddingHorizontal: 0,
   },
   email: {
+    width: "100%",
+    maxWidth: "100%",
     fontFamily: fonts.regular,
     fontSize: 12,
     lineHeight: 18,
     color: colors.onBrandPrimary,
     opacity: 0.72,
     marginTop: 1,
+    textAlign: "center",
+    paddingHorizontal: 0,
   },
   verifyButton: {
-    minHeight: 36,
+    maxWidth: "100%",
+    minHeight: 32,
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
@@ -1030,7 +1474,7 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: "rgba(17,17,17,0.06)",
-    marginTop: spacing.md,
+    marginTop: 10,
     shadowColor: colors.onSurface,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1039,10 +1483,14 @@ const useStyles = makeStyles((colors) => ({
   },
   verifyText: { fontFamily: fonts.semibold, fontSize: 12 },
   ratingLine: {
+    maxWidth: "100%",
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: 8,
+    paddingHorizontal: 0,
   },
   ratingBadge: {
     flexDirection: "row",
@@ -1191,9 +1639,12 @@ const useStyles = makeStyles((colors) => ({
     shadowRadius: 12,
     elevation: 2,
   },
-  profileCardHead: {
+  profileSummaryCard: {
+    marginBottom: spacing.md,
+  },
+  profileSummaryHead: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: spacing.md,
   },
   profileCardIcon: {
@@ -1219,31 +1670,6 @@ const useStyles = makeStyles((colors) => ({
     color: colors.muted,
     marginTop: 2,
   },
-  profileDetails: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    marginTop: spacing.lg,
-  },
-  infoTile: {
-    flex: 1,
-    minHeight: 94,
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceTertiary,
-  },
-  infoLabel: {
-    fontFamily: fonts.regular,
-    fontSize: 10,
-    color: colors.muted,
-    marginTop: 6,
-  },
-  infoValue: {
-    fontFamily: fonts.semibold,
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.onSurface,
-    marginTop: 2,
-  },
   editButton: {
     minHeight: 44,
     flexDirection: "row",
@@ -1261,7 +1687,6 @@ const useStyles = makeStyles((colors) => ({
   },
   employerSummary: {
     gap: spacing.md,
-    marginTop: spacing.lg,
   },
   detailRow: {
     flexDirection: "row",
@@ -1338,6 +1763,16 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: 18,
     backgroundColor: colors.surfaceSecondary,
   },
+  personCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceSecondary,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   historyMain: {
     flexDirection: "row",
     alignItems: "center",
@@ -1365,9 +1800,73 @@ const useStyles = makeStyles((colors) => ({
     color: colors.muted,
     marginTop: 1,
   },
+  itemMeta: {
+    fontFamily: fonts.medium,
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.onSurfaceSecondary,
+    marginTop: 2,
+  },
+  historyDetailScroll: { maxHeight: 520 },
+  historyDetailContent: { paddingBottom: spacing.md, gap: spacing.xs },
+  detailStack: { gap: spacing.md },
+  personList: { gap: spacing.sm, marginTop: spacing.xs },
+  personListTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 13,
+    color: colors.onSurface,
+  },
+  personBlock: {
+    gap: spacing.xs,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  personRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  personFacts: { gap: 2, paddingLeft: 56 },
+  reviewDetailComment: {
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.onSurface,
+    marginTop: spacing.sm,
+  },
+  screeningHistory: {
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  screeningBlock: {
+    gap: 4,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.divider,
+  },
+  screeningName: {
+    fontFamily: fonts.semibold,
+    fontSize: 12,
+    color: colors.onSurfaceSecondary,
+  },
+  screeningPair: { gap: 2 },
+  screeningQuestion: {
+    fontFamily: fonts.medium,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.onSurfaceSecondary,
+  },
+  screeningAnswer: {
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+    color: colors.onSurface,
+  },
   status: {
     flexDirection: "row",
     alignItems: "center",
+    flexShrink: 0,
     gap: 2,
     paddingHorizontal: spacing.sm,
     paddingVertical: 5,
@@ -1387,6 +1886,22 @@ const useStyles = makeStyles((colors) => ({
     marginTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.divider,
+  },
+  editJobButton: {
+    minHeight: 42,
+    marginTop: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.brandPrimary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+  },
+  editJobText: {
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    color: colors.brandPrimary,
   },
   metric: { flexDirection: "row", alignItems: "center", gap: 3 },
   metricValue: {
@@ -1416,7 +1931,7 @@ const useStyles = makeStyles((colors) => ({
   },
   reviewCard: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: spacing.md,
     padding: spacing.md,
     borderRadius: 18,

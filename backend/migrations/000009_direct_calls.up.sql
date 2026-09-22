@@ -1,0 +1,9 @@
+ALTER TABLE profiles
+    ADD COLUMN allow_direct_call BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE jobs
+    ADD COLUMN allow_direct_call BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE matches
+    ADD COLUMN worker_allow_direct_call BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN job_allow_direct_call BOOLEAN NOT NULL DEFAULT FALSE;

@@ -21,8 +21,10 @@ type Repository interface {
 	ListJobs(context.Context, string, domain.Filters) ([]domain.Job, error)
 	ListWorkers(context.Context, string, domain.Filters) ([]domain.Worker, error)
 	Job(context.Context, string) (domain.Job, error)
+	OwnedJob(context.Context, string, string) (domain.Job, error)
 	Worker(context.Context, string) (domain.Worker, error)
 	CreateJob(context.Context, string, domain.JobInput) (domain.Job, error)
+	UpdateJob(context.Context, string, string, domain.JobInput) (domain.Job, error)
 	AddJobPhoto(context.Context, string, string, string) (domain.Job, error)
 	OwnedJobs(context.Context, string) ([]domain.Job, error)
 	ActiveJobCategories(context.Context, string) ([]string, error)
@@ -45,9 +47,17 @@ func (s *Service) Profile(ctx context.Context, userID string) (*domain.Profile, 
 func (s *Service) SaveProfile(ctx context.Context, profile domain.Profile) (domain.Profile, error) {
 	profile.Name = strings.TrimSpace(profile.Name)
 	profile.Category = strings.TrimSpace(profile.Category)
+	profile.LastEducation = strings.TrimSpace(profile.LastEducation)
+	profile.Phone = strings.TrimSpace(profile.Phone)
+	profile.AllowDirectCall = profile.AllowDirectCall && profile.Phone != ""
 	if profile.Name == "" || profile.Category == "" {
 		return domain.Profile{}, ErrInvalidInput
 	}
+	employerType, valid := normalizeEmployerType(profile.EmployerType)
+	if !valid {
+		return domain.Profile{}, ErrInvalidInput
+	}
+	profile.EmployerType = employerType
 	if !validCoordinates(profile.Latitude, profile.Longitude) {
 		return domain.Profile{}, ErrInvalidInput
 	}
@@ -81,6 +91,21 @@ func (s *Service) Jobs(ctx context.Context, userID string, filters domain.Filter
 	return s.repository.ListJobs(ctx, userID, filters)
 }
 
+func (s *Service) BrowseAccess(ctx context.Context, userID string) (domain.BrowseAccess, error) {
+	profile, err := s.repository.Profile(ctx, userID)
+	if err != nil {
+		return domain.BrowseAccess{}, err
+	}
+	categories, err := s.repository.ActiveJobCategories(ctx, userID)
+	if err != nil {
+		return domain.BrowseAccess{}, err
+	}
+	return domain.BrowseAccess{
+		CanBrowseJobs:    profileComplete(profile),
+		CanBrowseWorkers: len(categories) > 0,
+	}, nil
+}
+
 func (s *Service) Workers(ctx context.Context, userID string, filters domain.Filters) ([]domain.Worker, error) {
 	categories, err := s.repository.ActiveJobCategories(ctx, userID)
 	if err != nil {
@@ -97,6 +122,10 @@ func (s *Service) Job(ctx context.Context, id string) (domain.Job, error) {
 	return s.repository.Job(ctx, id)
 }
 
+func (s *Service) OwnedJob(ctx context.Context, ownerUserID, id string) (domain.Job, error) {
+	return s.repository.OwnedJob(ctx, ownerUserID, id)
+}
+
 func (s *Service) Worker(ctx context.Context, id string) (domain.Worker, error) {
 	worker, err := s.repository.Worker(ctx, id)
 	if err != nil {
@@ -111,14 +140,57 @@ func (s *Service) Worker(ctx context.Context, id string) (domain.Worker, error) 
 }
 
 func (s *Service) CreateJob(ctx context.Context, ownerUserID string, input domain.JobInput) (domain.Job, error) {
+	if strings.TrimSpace(input.Phone) == "" {
+		profile, err := s.repository.Profile(ctx, ownerUserID)
+		if err != nil {
+			return domain.Job{}, err
+		}
+		if profile != nil && profile.AllowDirectCall && strings.TrimSpace(profile.Phone) != "" {
+			input.Phone = profile.Phone
+			input.AllowDirectCall = true
+		}
+	}
+	input, err := normalizeJobInput(input)
+	if err != nil {
+		return domain.Job{}, err
+	}
+	if input.PhotoURLs == nil {
+		input.PhotoURLs = []string{}
+	}
+	return s.repository.CreateJob(ctx, ownerUserID, input)
+}
+
+func (s *Service) UpdateJob(
+	ctx context.Context,
+	ownerUserID, jobID string,
+	input domain.JobInput,
+) (domain.Job, error) {
+	if strings.TrimSpace(jobID) == "" {
+		return domain.Job{}, ErrInvalidInput
+	}
+	input, err := normalizeJobInput(input)
+	if err != nil {
+		return domain.Job{}, err
+	}
+	return s.repository.UpdateJob(ctx, ownerUserID, jobID, input)
+}
+
+func normalizeJobInput(input domain.JobInput) (domain.JobInput, error) {
 	input.Business = strings.TrimSpace(input.Business)
 	input.Title = strings.TrimSpace(input.Title)
 	input.Category = strings.TrimSpace(input.Category)
+	input.Phone = strings.TrimSpace(input.Phone)
+	input.AllowDirectCall = input.AllowDirectCall && input.Phone != ""
 	if input.Business == "" || input.Title == "" || input.Category == "" {
-		return domain.Job{}, ErrInvalidInput
+		return domain.JobInput{}, ErrInvalidInput
 	}
+	employerType, valid := normalizeEmployerType(input.EmployerType)
+	if !valid {
+		return domain.JobInput{}, ErrInvalidInput
+	}
+	input.EmployerType = employerType
 	if !validCoordinates(input.Latitude, input.Longitude) {
-		return domain.Job{}, ErrInvalidInput
+		return domain.JobInput{}, ErrInvalidInput
 	}
 	if input.PayUnit == "" {
 		input.PayUnit = "/hari"
@@ -131,6 +203,7 @@ func (s *Service) CreateJob(ctx context.Context, ownerUserID string, input domai
 	if input.JobType == "" {
 		input.JobType = "Harian"
 	}
+	input.MinExperienceLabel = strings.TrimPrefix(strings.TrimSpace(input.MinExperienceLabel), "Min. ")
 	if input.MinExperienceLabel == "" {
 		input.MinExperienceLabel = "Tidak wajib"
 	}
@@ -140,7 +213,24 @@ func (s *Service) CreateJob(ctx context.Context, ownerUserID string, input domai
 	if input.ScreeningQuestions == nil {
 		input.ScreeningQuestions = []string{}
 	}
-	return s.repository.CreateJob(ctx, ownerUserID, input)
+	if input.PhotoURLs != nil {
+		input.PhotoURLs = cleanPhotoURLs(input.PhotoURLs)
+	}
+	if len(input.PhotoURLs) > 5 {
+		return domain.JobInput{}, ErrInvalidInput
+	}
+	return input, nil
+}
+
+func normalizeEmployerType(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "pribadi":
+		return "pribadi", true
+	case "usaha_perusahaan", "usaha/perusahaan", "usaha", "perusahaan", "agency", "agensi":
+		return "usaha_perusahaan", true
+	default:
+		return "", false
+	}
 }
 
 func (s *Service) OwnedJobs(ctx context.Context, ownerID string) ([]domain.Job, error) {
@@ -167,6 +257,9 @@ func validCoordinates(latitude, longitude *float64) bool {
 }
 
 func cleanPhotoURLs(values []string) []string {
+	if values == nil {
+		return nil
+	}
 	result := make([]string, 0, len(values))
 	seen := make(map[string]bool, len(values))
 	for _, value := range values {
@@ -188,10 +281,7 @@ func profileComplete(profile *domain.Profile) bool {
 }
 
 func preferredCategories(selected, relevant []string) []string {
-	if len(selected) > 0 {
-		return cleanCategoryList(selected)
-	}
-	return cleanCategoryList(relevant)
+	return cleanCategoryList(append(append([]string{}, relevant...), selected...))
 }
 
 func cleanCategoryList(values []string) []string {

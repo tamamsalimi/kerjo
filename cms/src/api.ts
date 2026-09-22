@@ -137,8 +137,11 @@ const mapJob = (row: Row): Job => ({
 const mapMatch = (row: Row): MatchActivity => ({
   id: text(row, 'id'),
   jobId: text(row, 'job_id'),
+  jobTitle: optionalText(row, 'job_title'),
   employerId: text(row, 'employer_user_id'),
+  employerName: optionalText(row, 'employer_name'),
   workerId: text(row, 'worker_user_id'),
+  workerName: optionalText(row, 'worker_name'),
   status: row.job_done ? 'closed' : 'active',
   messageCount: number(row, 'message_count'),
   lastMessageAt: optionalText(row, 'last_message_at'),

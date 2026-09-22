@@ -21,7 +21,7 @@ import {
   fetchMatch,
   submitReview,
 } from "@/src/features/matching/services/matching-service";
-import { conversationRole, formatPay } from "@/src/constants";
+import { conversationRole, employerTypeLabel, formatPay } from "@/src/constants";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 const SCHEDULE_KINDS = ["Wawancara", "Tes/Asesmen", "Hari Pertama"];
@@ -146,6 +146,10 @@ export default function Chat() {
   }, [messages?.length, id, queryClient]);
 
   function callPartner() {
+    if (!match?.allow_direct_call) {
+      toast("Panggilan langsung tidak diizinkan", "info");
+      return;
+    }
     const phone = (match?.phone || "").replace(/[^\d+]/g, "");
     if (!phone) {
       toast("Nomor telepon belum tersedia", "info");
@@ -220,7 +224,7 @@ export default function Chat() {
             </View>
           </View>
         </Pressable>
-        {match?.phone ? (
+        {match?.allow_direct_call && match?.phone ? (
           <Pressable style={styles.headerIcon} onPress={callPartner} hitSlop={8} testID="call-button">
             <Icon name="phone" size={22} color={colors.brandPrimary} />
           </Pressable>
@@ -349,6 +353,7 @@ export default function Chat() {
 
           {match?.entity_type === "job" ? (
             <View style={styles.detailList}>
+              <DetailRow label="Tipe Pemberi Kerja" value={employerTypeLabel(match?.employer_type)} />
               <DetailRow label="Usaha / Keluarga" value={match?.subtitle} />
               <DetailRow label="Kategori" value={match?.category} />
               <DetailRow
@@ -370,6 +375,9 @@ export default function Chat() {
             <View style={styles.detailList}>
               <DetailRow label="Keahlian" value={match?.category} />
               <DetailRow label="Pengalaman" value={match?.experience_label || "Belum dicantumkan"} />
+              {match?.last_education ? (
+                <DetailRow label="Pendidikan Terakhir" value={match.last_education} />
+              ) : null}
               <DetailRow
                 label="Tarif"
                 value={match?.pay_display || (
@@ -383,7 +391,7 @@ export default function Chat() {
             </View>
           )}
 
-          {match?.phone ? (
+          {match?.allow_direct_call && match?.phone ? (
             <PrimaryButton
               label="Hubungi"
               icon="phone"

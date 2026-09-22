@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"crypto/md5"
+	"encoding/json"
 	"errors"
 	"math"
 	"strings"
@@ -59,7 +60,11 @@ func (r *Repository) Swipe(ctx context.Context, userID string, input domain.Swip
 		if input.TargetType == "job" {
 			var available int64
 			if err := tx.Model(&database.Job{}).
-				Where("id = ? AND deleted_at IS NULL AND hidden_at IS NULL", input.TargetID).
+				Where(
+					"id = ? AND deleted_at IS NULL AND hidden_at IS NULL AND (owner_user_id IS NULL OR owner_user_id <> ?)",
+					input.TargetID,
+					userID,
+				).
 				Count(&available).Error; err != nil {
 				return err
 			}
@@ -86,7 +91,7 @@ func (r *Repository) Swipe(ctx context.Context, userID string, input domain.Swip
 		if input.TargetType == "job" {
 			match, err = r.matchJob(tx, userID, input.TargetID, now)
 		} else {
-			match, err = r.matchWorker(tx, userID, input.TargetID, now)
+			match, err = r.matchWorker(tx, userID, input.TargetID, input.JobID, now)
 		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
@@ -124,7 +129,7 @@ func (r *Repository) matchJob(tx *gorm.DB, workerID, jobID string, now time.Time
 	return r.createRealMatch(tx, workerID, *job.OwnerUserID, job, now)
 }
 
-func (r *Repository) matchWorker(tx *gorm.DB, employerID, targetID string, now time.Time) (database.Match, error) {
+func (r *Repository) matchWorker(tx *gorm.DB, employerID, targetID, preferredJobID string, now time.Time) (database.Match, error) {
 	if !strings.HasPrefix(targetID, "wp_") {
 		var worker database.Worker
 		if err := tx.Where("id = ? AND deleted_at IS NULL", targetID).First(&worker).Error; err != nil {
@@ -133,13 +138,10 @@ func (r *Repository) matchWorker(tx *gorm.DB, employerID, targetID string, now t
 		return r.createBotMatch(tx, employerID, "worker", worker.ID, worker.Name, worker.Role, worker.Avatar, worker.Category, botGreetingWorker, now)
 	}
 	workerID := strings.TrimPrefix(targetID, "wp_")
-	var liked database.Swipe
-	err := tx.Table("swipes").
-		Select("swipes.*").
-		Joins("JOIN jobs ON jobs.id = swipes.target_id").
-		Where(`swipes.swiper_user_id = ? AND swipes.target_type = 'job' AND swipes.direction = 'right'
-			AND jobs.owner_user_id = ? AND jobs.deleted_at IS NULL AND jobs.hidden_at IS NULL`, workerID, employerID).
-		Order("swipes.updated_at DESC").First(&liked).Error
+	liked, err := r.workerJobApplication(tx, workerID, employerID, preferredJobID, true)
+	if errors.Is(err, gorm.ErrRecordNotFound) && preferredJobID == "" {
+		liked, err = r.workerJobApplication(tx, workerID, employerID, "", false)
+	}
 	if err != nil {
 		return database.Match{}, err
 	}
@@ -148,6 +150,28 @@ func (r *Repository) matchWorker(tx *gorm.DB, employerID, targetID string, now t
 		return database.Match{}, err
 	}
 	return r.createRealMatch(tx, workerID, employerID, job, now)
+}
+
+func (r *Repository) workerJobApplication(
+	tx *gorm.DB, workerID, employerID, preferredJobID string, unmatchedOnly bool,
+) (database.Swipe, error) {
+	query := tx.Table("swipes").
+		Select("swipes.*").
+		Joins("JOIN jobs ON jobs.id = swipes.target_id").
+		Where(`swipes.swiper_user_id = ? AND swipes.target_type = 'job' AND swipes.direction = 'right'
+			AND jobs.owner_user_id = ? AND jobs.deleted_at IS NULL AND jobs.hidden_at IS NULL`, workerID, employerID)
+	if preferredJobID != "" {
+		query = query.Where("jobs.id = ?", preferredJobID)
+	}
+	if unmatchedOnly {
+		query = query.Where(`NOT EXISTS (
+			SELECT 1 FROM matches
+			WHERE matches.kind = 'real' AND matches.worker_user_id = ? AND matches.job_id = jobs.id
+		)`, workerID)
+	}
+	var liked database.Swipe
+	err := query.Order("swipes.updated_at DESC").First(&liked).Error
+	return liked, err
 }
 
 func (r *Repository) createBotMatch(
@@ -204,9 +228,13 @@ func (r *Repository) createRealMatch(tx *gorm.DB, workerID, employerID string, j
 	match := database.Match{
 		ID: id.New("match_", 12), Kind: "real", WorkerUserID: &workerID, EmployerUserID: &employerID,
 		JobID: &job.ID, WorkerName: workerName, WorkerCategory: profile.Category,
-		WorkerAvatar: cleanAvatar(profile.PhotoURL), WorkerPhone: profile.Phone,
-		JobTitle: job.Title, JobBusiness: job.Business, JobCategory: job.Category, JobPhone: job.Phone,
-		CreatedAt: now, UpdatedAt: now,
+		WorkerAvatar:          cleanAvatar(primaryProfilePhoto(profile)),
+		WorkerPhone:           directCallPhone(profile.Phone, profile.AllowDirectCall),
+		WorkerAllowDirectCall: profile.AllowDirectCall,
+		JobTitle:              job.Title, JobBusiness: job.Business, JobCategory: job.Category,
+		JobPhone:           directCallPhone(job.Phone, job.AllowDirectCall),
+		JobAllowDirectCall: job.AllowDirectCall,
+		CreatedAt:          now, UpdatedAt: now,
 	}
 	if err := tx.Create(&match).Error; err != nil {
 		return database.Match{}, err
@@ -228,6 +256,14 @@ func (r *Repository) Undo(ctx context.Context, userID, targetType, targetID stri
 	return r.db.WithContext(ctx).Where(
 		"swiper_user_id = ? AND target_type = ? AND target_id = ?", userID, targetType, targetID,
 	).Delete(&database.Swipe{}).Error
+}
+
+func (r *Repository) RecycleSkipped(ctx context.Context, userID, targetType string) (int64, error) {
+	result := r.db.WithContext(ctx).Where(
+		"swiper_user_id = ? AND target_type = ? AND direction = ?",
+		userID, targetType, "left",
+	).Delete(&database.Swipe{})
+	return result.RowsAffected, result.Error
 }
 
 func (r *Repository) List(ctx context.Context, userID string) ([]domain.MatchView, error) {
@@ -276,9 +312,49 @@ func (r *Repository) List(ctx context.Context, userID string) ([]domain.MatchVie
 	for _, reviewer := range reviewerRows {
 		reviewedByMatch[reviewer.MatchID] = true
 	}
+	workerIDs := make([]string, 0, len(matches))
+	jobIDs := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if match.Kind == "real" && match.WorkerUserID != nil && *match.WorkerUserID != userID {
+			workerIDs = append(workerIDs, *match.WorkerUserID)
+		}
+		if match.Kind == "real" && match.WorkerUserID != nil && *match.WorkerUserID == userID && match.JobID != nil {
+			jobIDs = append(jobIDs, *match.JobID)
+		}
+	}
+	currentWorkerPhotos := map[string]string{}
+	if len(workerIDs) > 0 {
+		var profiles []database.Profile
+		if err := r.db.WithContext(ctx).Where("user_id IN ?", workerIDs).Find(&profiles).Error; err != nil {
+			return nil, err
+		}
+		for _, profile := range profiles {
+			currentWorkerPhotos[profile.UserID] = cleanAvatar(primaryProfilePhoto(profile))
+		}
+	}
+	currentJobPhotos := map[string]string{}
+	if len(jobIDs) > 0 {
+		var jobs []database.Job
+		if err := r.db.WithContext(ctx).Where("id IN ?", jobIDs).Find(&jobs).Error; err != nil {
+			return nil, err
+		}
+		for _, job := range jobs {
+			currentJobPhotos[job.ID] = primaryJobPhoto(job)
+		}
+	}
 	result := make([]domain.MatchView, 0, len(matches))
 	for _, match := range matches {
 		view := displayBase(match, userID)
+		if match.WorkerUserID != nil && view.EntityType == "worker" {
+			if photo := currentWorkerPhotos[*match.WorkerUserID]; photo != "" {
+				view.Image = photo
+			}
+		}
+		if match.JobID != nil && view.EntityType == "job" {
+			if photo := currentJobPhotos[*match.JobID]; photo != "" {
+				view.Image = photo
+			}
+		}
 		view.Reviewed = match.Reviewed || reviewedByMatch[match.ID]
 		view.LastMessage = lastByMatch[match.ID]
 		view.Unread = unreadByMatch[match.ID]
@@ -326,27 +402,29 @@ func (r *Repository) Applicants(ctx context.Context, employerID string) ([]domai
 		Name            string
 		Category        string
 		ExperienceLabel string
+		LastEducation   string
 		Availability    string
 		Rate            string
 		Phone           string
+		AllowDirectCall bool
 		PhotoURL        string
 		Bio             string
 		JobID           string
 		JobTitle        string
-		Questions       []string `gorm:"serializer:json"`
-		Answers         []string `gorm:"serializer:json"`
+		Questions       []byte
+		Answers         []byte
 		MatchID         *string
 		Rating          float64
 		JobsCompleted   int
 	}
 	var rows []row
 	err := r.db.WithContext(ctx).Raw(`
-		SELECT DISTINCT ON (s.swiper_user_id)
+		SELECT
 			s.swiper_user_id AS worker_id,
 			COALESCE(NULLIF(p.name, ''), u.name) AS name,
 			COALESCE(NULLIF(p.category, ''), 'Belum ada profil') AS category,
 			COALESCE(NULLIF(p.experience_label, ''), 'Belum diisi') AS experience_label,
-			p.availability, p.rate, p.phone, p.photo_url, p.bio,
+			p.last_education, p.availability, p.rate, p.phone, p.allow_direct_call, p.photo_url, p.bio,
 			j.id AS job_id, j.title AS job_title, j.screening_questions AS questions,
 			s.screening_answers AS answers, mt.id AS match_id,
 			COALESCE(rs.rating, 0) AS rating, COALESCE(rs.count, 0) AS jobs_completed
@@ -354,13 +432,16 @@ func (r *Repository) Applicants(ctx context.Context, employerID string) ([]domai
 		JOIN jobs j ON j.id = s.target_id AND j.owner_user_id = ? AND j.deleted_at IS NULL
 		JOIN users u ON u.user_id = s.swiper_user_id
 		LEFT JOIN profiles p ON p.user_id = s.swiper_user_id
-		LEFT JOIN matches mt ON mt.kind = 'real' AND mt.worker_user_id = s.swiper_user_id AND mt.employer_user_id = ?
+		LEFT JOIN matches mt ON mt.kind = 'real'
+			AND mt.worker_user_id = s.swiper_user_id
+			AND mt.employer_user_id = ?
+			AND mt.job_id = j.id
 		LEFT JOIN (
 			SELECT worker_id, AVG(rating)::float AS rating, COUNT(*)::int AS count
 			FROM reviews GROUP BY worker_id
 		) rs ON rs.worker_id = 'wp_' || s.swiper_user_id
 		WHERE s.target_type = 'job' AND s.direction = 'right' AND s.swiper_user_id <> ?
-		ORDER BY s.swiper_user_id, s.updated_at DESC`, employerID, employerID, employerID).Scan(&rows).Error
+		ORDER BY s.updated_at DESC`, employerID, employerID, employerID).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
@@ -369,12 +450,15 @@ func (r *Repository) Applicants(ctx context.Context, employerID string) ([]domai
 		result = append(result, domain.Applicant{
 			ID: "wp_" + item.WorkerID, Name: item.Name, Category: item.Category, Role: item.Category,
 			ExperienceLabel: item.ExperienceLabel, ExperienceBucket: profileExperienceBucket(item.ExperienceLabel),
-			DistanceKM: stableDistance(item.WorkerID), PayDisplay: item.Rate,
+			LastEducation: item.LastEducation,
+			DistanceKM:    stableDistance(item.WorkerID), PayDisplay: item.Rate,
 			Rating: math.Round(item.Rating*10) / 10, JobsCompleted: item.JobsCompleted,
 			Verified: true, IsNew: item.JobsCompleted == 0, Avatar: cleanAvatar(item.PhotoURL),
-			Bio: item.Bio, Availability: item.Availability, Phone: item.Phone,
-			OwnerUserID: item.WorkerID, IsReal: true, AppliedJobTitle: item.JobTitle,
-			AppliedJobID: item.JobID, ScreeningQuestions: item.Questions, ScreeningAnswers: item.Answers,
+			Bio: item.Bio, Availability: item.Availability,
+			Phone:           directCallPhone(item.Phone, item.AllowDirectCall),
+			AllowDirectCall: item.AllowDirectCall,
+			OwnerUserID:     item.WorkerID, IsReal: true, AppliedJobTitle: item.JobTitle,
+			AppliedJobID: item.JobID, ScreeningQuestions: decodeJSONStrings(item.Questions), ScreeningAnswers: decodeJSONStrings(item.Answers),
 			Matched: item.MatchID != nil, MatchID: item.MatchID,
 		})
 	}
@@ -395,19 +479,6 @@ func (r *Repository) Get(ctx context.Context, matchID, userID string) (domain.Ma
 		otherID := value(match.WorkerUserID)
 		if otherID == userID {
 			otherID = value(match.EmployerUserID)
-			var job database.Job
-			if match.JobID != nil && r.db.WithContext(ctx).Where("id = ?", *match.JobID).First(&job).Error == nil {
-				view.Phone = first(job.Phone, match.JobPhone)
-			} else {
-				view.Phone = match.JobPhone
-			}
-		} else {
-			var profile database.Profile
-			if r.db.WithContext(ctx).Where("user_id = ?", value(match.WorkerUserID)).First(&profile).Error == nil {
-				view.Phone = first(profile.Phone, match.WorkerPhone)
-			} else {
-				view.Phone = match.WorkerPhone
-			}
 		}
 		var other database.User
 		if r.db.WithContext(ctx).Where("user_id = ?", otherID).First(&other).Error == nil && other.LastSeen != nil {
@@ -426,6 +497,8 @@ func (r *Repository) enrichMatchDetail(ctx context.Context, view *domain.MatchVi
 		}
 		view.PayAmount = job.PayAmount
 		view.PayUnit = job.PayUnit
+		view.EmployerType = job.EmployerType
+		view.Image = primaryJobPhoto(job)
 		view.JobType = job.JobType
 		view.Experience = job.MinExperienceLabel
 		view.Description = job.Description
@@ -438,6 +511,8 @@ func (r *Repository) enrichMatchDetail(ctx context.Context, view *domain.MatchVi
 			}
 			view.PayDisplay = profile.Rate
 			view.Experience = profile.ExperienceLabel
+			view.LastEducation = profile.LastEducation
+			view.Image = cleanAvatar(primaryProfilePhoto(profile))
 			view.Availability = profile.Availability
 			view.Bio = profile.Bio
 			var count int64
@@ -453,6 +528,7 @@ func (r *Repository) enrichMatchDetail(ctx context.Context, view *domain.MatchVi
 		view.PayAmount = worker.PayAmount
 		view.PayUnit = worker.PayUnit
 		view.Experience = worker.ExperienceLabel
+		view.LastEducation = worker.LastEducation
 		view.Bio = worker.Bio
 		view.Verified = worker.Verified
 	}
@@ -539,7 +615,7 @@ func (r *Repository) ProfileHistory(ctx context.Context, userID string) (domain.
 		RatingsReceived: []domain.HistoryReview{},
 	}
 	if err := r.db.WithContext(ctx).Raw(`
-		SELECT j.id, j.title, j.business,
+		SELECT j.id, j.title, j.business, j.employer_type,
 			CASE
 				WHEN j.deleted_at IS NOT NULL THEN 'closed'
 				WHEN COUNT(DISTINCT mt.id) >= j.workers_needed THEN 'full'
@@ -554,21 +630,97 @@ func (r *Repository) ProfileHistory(ctx context.Context, userID string) (domain.
 		LEFT JOIN swipes s ON s.target_type = 'job' AND s.target_id = j.id
 		LEFT JOIN matches mt ON mt.kind = 'real' AND mt.job_id = j.id
 		WHERE j.owner_user_id = ?
-		GROUP BY j.id, j.title, j.business, j.deleted_at, j.workers_needed, j.created_at
+		GROUP BY j.id, j.title, j.business, j.employer_type, j.deleted_at, j.workers_needed, j.created_at
 		ORDER BY j.created_at DESC`, userID).Scan(&result.EmployerJobs).Error; err != nil {
 		return domain.ProfileHistory{}, err
 	}
+	type applicantResponseRow struct {
+		JobID              string
+		WorkerID           string
+		WorkerName         string
+		Category           string
+		ExperienceLabel    string
+		LastEducation      string
+		Rate               string
+		PhotoURL           string
+		Bio                string
+		ScreeningQuestions []byte
+		ScreeningAnswers   []byte
+		CreatedAt          time.Time
+	}
+	var responseRows []applicantResponseRow
 	if err := r.db.WithContext(ctx).Raw(`
-		SELECT j.id, j.title, j.business, mt.id AS match_id,
+		SELECT j.id AS job_id, s.swiper_user_id AS worker_id,
+			COALESCE(NULLIF(p.name, ''), NULLIF(u.name, ''), 'Pelamar') AS worker_name,
+			COALESCE(NULLIF(p.category, ''), '') AS category,
+			COALESCE(NULLIF(p.experience_label, ''), '') AS experience_label,
+			COALESCE(p.last_education, '') AS last_education,
+			COALESCE(p.rate, '') AS rate,
+			COALESCE(NULLIF(p.photo_url, ''), NULLIF(p.photo_urls->>0, ''), '') AS photo_url,
+			COALESCE(p.bio, '') AS bio,
+			j.screening_questions, s.screening_answers, s.updated_at AS created_at
+		FROM swipes s
+		JOIN jobs j ON j.id = s.target_id AND j.owner_user_id = ?
+		JOIN users u ON u.user_id = s.swiper_user_id
+		LEFT JOIN profiles p ON p.user_id = s.swiper_user_id
+		WHERE s.target_type = 'job' AND s.direction = 'right'
+		ORDER BY s.updated_at DESC`, userID).Scan(&responseRows).Error; err != nil {
+		return domain.ProfileHistory{}, err
+	}
+	responsesByJob := make(map[string][]domain.EmployerApplicantResponse, len(result.EmployerJobs))
+	for _, row := range responseRows {
+		responsesByJob[row.JobID] = append(responsesByJob[row.JobID], domain.EmployerApplicantResponse{
+			JobID:              row.JobID,
+			WorkerID:           "wp_" + row.WorkerID,
+			WorkerName:         row.WorkerName,
+			Category:           row.Category,
+			ExperienceLabel:    row.ExperienceLabel,
+			LastEducation:      row.LastEducation,
+			Rate:               row.Rate,
+			PhotoURL:           cleanAvatar(row.PhotoURL),
+			Bio:                row.Bio,
+			ScreeningQuestions: decodeJSONStrings(row.ScreeningQuestions),
+			ScreeningAnswers:   decodeJSONStrings(row.ScreeningAnswers),
+			CreatedAt:          row.CreatedAt,
+		})
+	}
+	for i, job := range result.EmployerJobs {
+		result.EmployerJobs[i].ApplicantResponses = responsesByJob[job.ID]
+		if result.EmployerJobs[i].ApplicantResponses == nil {
+			result.EmployerJobs[i].ApplicantResponses = []domain.EmployerApplicantResponse{}
+		}
+	}
+	type workerJobRow struct {
+		ID                 string
+		Title              string
+		Business           string
+		EmployerName       string
+		EmployerType       string
+		EmployerPhoto      string
+		Status             string
+		MatchID            *string
+		ScreeningQuestions []byte
+		ScreeningAnswers   []byte
+		CreatedAt          time.Time
+	}
+	var workerRows []workerJobRow
+	if err := r.db.WithContext(ctx).Raw(`
+		SELECT j.id, j.title, j.business, j.employer_type,
+			COALESCE(NULLIF(ep.name, ''), NULLIF(eu.name, ''), j.business) AS employer_name,
+			COALESCE(NULLIF(ep.photo_url, ''), NULLIF(ep.photo_urls->>0, ''), '') AS employer_photo,
+			mt.id AS match_id,
 			CASE
 				WHEN mt.job_done THEN 'completed'
 				WHEN COALESCE(schedules.count, 0) > 0 THEN 'scheduled'
 				WHEN mt.id IS NOT NULL THEN 'aligned'
 				ELSE 'matched'
 			END AS status,
+			j.screening_questions, s.screening_answers,
 			s.updated_at AS created_at
 		FROM swipes s
 		JOIN jobs j ON j.id = s.target_id
+		LEFT JOIN users eu ON eu.user_id = j.owner_user_id
+		LEFT JOIN profiles ep ON ep.user_id = j.owner_user_id
 		LEFT JOIN matches mt ON mt.kind = 'real' AND mt.worker_user_id = ? AND mt.job_id = j.id
 		LEFT JOIN LATERAL (
 			SELECT COUNT(*) AS count
@@ -577,8 +729,24 @@ func (r *Repository) ProfileHistory(ctx context.Context, userID string) (domain.
 			WHERE msg.match_id = mt.id AND ms.status IN ('pending', 'accepted')
 		) schedules ON TRUE
 		WHERE s.swiper_user_id = ? AND s.target_type = 'job' AND s.direction = 'right'
-		ORDER BY s.updated_at DESC`, userID, userID).Scan(&result.WorkerJobs).Error; err != nil {
+		ORDER BY s.updated_at DESC`, userID, userID).Scan(&workerRows).Error; err != nil {
 		return domain.ProfileHistory{}, err
+	}
+	result.WorkerJobs = make([]domain.WorkerJobHistory, 0, len(workerRows))
+	for _, row := range workerRows {
+		result.WorkerJobs = append(result.WorkerJobs, domain.WorkerJobHistory{
+			ID:                 row.ID,
+			Title:              row.Title,
+			Business:           row.Business,
+			EmployerName:       row.EmployerName,
+			EmployerType:       row.EmployerType,
+			EmployerPhoto:      cleanAvatar(row.EmployerPhoto),
+			Status:             row.Status,
+			MatchID:            row.MatchID,
+			ScreeningQuestions: decodeJSONStrings(row.ScreeningQuestions),
+			ScreeningAnswers:   decodeJSONStrings(row.ScreeningAnswers),
+			CreatedAt:          row.CreatedAt,
+		})
 	}
 	if err := r.db.WithContext(ctx).Raw(`
 		SELECT r.id, COALESCE(r.match_id, '') AS match_id,
@@ -660,7 +828,41 @@ func (r *Repository) display(tx *gorm.DB, match database.Match, userID string) (
 		return domain.MatchView{}, err
 	}
 	view.Reviewed = count > 0
+	r.applyLiveDirectCall(tx, match, userID, &view)
 	return view, nil
+}
+
+func (r *Repository) applyLiveDirectCall(tx *gorm.DB, match database.Match, userID string, view *domain.MatchView) {
+	if match.Kind != "real" {
+		return
+	}
+	if value(match.WorkerUserID) == userID {
+		var job database.Job
+		if match.JobID != nil && tx.Where("id = ?", *match.JobID).First(&job).Error == nil {
+			if strings.TrimSpace(job.Phone) != "" {
+				view.AllowDirectCall = job.AllowDirectCall
+				view.Phone = directCallPhone(job.Phone, job.AllowDirectCall)
+				return
+			}
+			var employerProfile database.Profile
+			if tx.Where("user_id = ?", value(match.EmployerUserID)).First(&employerProfile).Error == nil {
+				view.AllowDirectCall = employerProfile.AllowDirectCall
+				view.Phone = directCallPhone(employerProfile.Phone, employerProfile.AllowDirectCall)
+				return
+			}
+		}
+		view.AllowDirectCall = match.JobAllowDirectCall
+		view.Phone = directCallPhone(match.JobPhone, match.JobAllowDirectCall)
+		return
+	}
+	var profile database.Profile
+	if tx.Where("user_id = ?", value(match.WorkerUserID)).First(&profile).Error == nil {
+		view.AllowDirectCall = profile.AllowDirectCall
+		view.Phone = directCallPhone(profile.Phone, profile.AllowDirectCall)
+		return
+	}
+	view.AllowDirectCall = match.WorkerAllowDirectCall
+	view.Phone = directCallPhone(match.WorkerPhone, match.WorkerAllowDirectCall)
 }
 
 func displayBase(match database.Match, userID string) domain.MatchView {
@@ -688,6 +890,17 @@ func displayBase(match database.Match, userID string) domain.MatchView {
 	return view
 }
 
+func decodeJSONStrings(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+	var result []string
+	if err := json.Unmarshal(raw, &result); err != nil || result == nil {
+		return []string{}
+	}
+	return result
+}
+
 func value(input *string) string {
 	if input == nil {
 		return ""
@@ -702,6 +915,13 @@ func first(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func directCallPhone(phone string, allowed bool) string {
+	if !allowed {
+		return ""
+	}
+	return phone
 }
 
 func profileExperienceBucket(label string) string {
@@ -725,4 +945,22 @@ func cleanAvatar(value string) string {
 		}
 	}
 	return value
+}
+
+func primaryProfilePhoto(profile database.Profile) string {
+	for _, photoURL := range profile.PhotoURLs {
+		if strings.TrimSpace(photoURL) != "" {
+			return strings.TrimSpace(photoURL)
+		}
+	}
+	return strings.TrimSpace(profile.PhotoURL)
+}
+
+func primaryJobPhoto(job database.Job) string {
+	for _, photoURL := range job.PhotoURLs {
+		if strings.TrimSpace(photoURL) != "" {
+			return strings.TrimSpace(photoURL)
+		}
+	}
+	return ""
 }

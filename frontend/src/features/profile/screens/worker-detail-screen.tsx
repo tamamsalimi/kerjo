@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon, CategoryAvatar, RatingStars, TrustBadge } from "@/src/components/ui";
 import { categoryIcon, formatPay } from "@/src/constants";
 import { fetchWorker } from "@/src/features/profile/services/profile-service";
+import { mediaUrl } from "@/src/services/http-client";
 import { fonts, makeStyles, radius, spacing, useTheme } from "@/src/theme";
 
 export default function WorkerProfile() {
@@ -38,7 +39,7 @@ export default function WorkerProfile() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xl }}>
         <View style={[styles.banner, { backgroundColor: colors.brandPrimary }]}>
           {w.avatar ? (
-            <Image source={{ uri: w.avatar }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            <Image source={{ uri: mediaUrl(w.avatar) }} style={StyleSheet.absoluteFill} contentFit="cover" />
           ) : (
             <View style={styles.bannerCenter}>
               <Icon name={categoryIcon(w.category)} size={72} color="rgba(255,255,255,0.9)" />
@@ -77,6 +78,13 @@ export default function WorkerProfile() {
             </Text>
             <Text style={styles.expLabel}>{w.experience_label} pengalaman</Text>
           </View>
+
+          {w.last_education ? (
+            <>
+              <Text style={styles.sectionTitle}>Pendidikan Terakhir</Text>
+              <Text style={styles.bio}>{w.last_education}</Text>
+            </>
+          ) : null}
 
           <Text style={styles.sectionTitle}>Tentang</Text>
           <Text style={styles.bio}>{w.bio}</Text>

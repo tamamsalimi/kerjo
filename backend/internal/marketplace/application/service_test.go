@@ -15,6 +15,26 @@ func TestCleanPhotoURLsPreservesOrderAndRemovesEmptyDuplicates(t *testing.T) {
 	}
 }
 
+func TestCleanPhotoURLsPreservesNil(t *testing.T) {
+	if got := cleanPhotoURLs(nil); got != nil {
+		t.Fatalf("cleanPhotoURLs(nil) = %#v; want nil", got)
+	}
+}
+
+func TestNormalizeJobInputKeepsMissingPhotosNilForUpdate(t *testing.T) {
+	input, err := normalizeJobInput(domain.JobInput{
+		Business: "Warung Bu Yanti",
+		Title:    "Kasir",
+		Category: "Retail / Toko",
+	})
+	if err != nil {
+		t.Fatalf("normalizeJobInput() error = %v", err)
+	}
+	if input.PhotoURLs != nil {
+		t.Fatalf("PhotoURLs = %#v; want nil so create can default and update can skip", input.PhotoURLs)
+	}
+}
+
 func TestProfileCompleteRequiresIdentityCategoryAndPhoto(t *testing.T) {
 	complete := &domain.Profile{Name: "Sari", Category: "Retail / Toko", PhotoURLs: []string{"sari.jpg"}}
 	if !profileComplete(complete) {
@@ -26,13 +46,22 @@ func TestProfileCompleteRequiresIdentityCategoryAndPhoto(t *testing.T) {
 	}
 }
 
-func TestPreferredCategoriesUsesExplicitSelectionFirst(t *testing.T) {
+func TestPreferredCategoriesKeepsProfessionFirst(t *testing.T) {
 	got := preferredCategories(
 		[]string{"Teknisi", "Retail / Toko"},
 		[]string{"Bersih-bersih"},
 	)
-	want := []string{"Teknisi", "Retail / Toko"}
+	want := []string{"Bersih-bersih", "Teknisi", "Retail / Toko"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("preferredCategories() = %#v; want %#v", got, want)
+	}
+}
+
+func TestNormalizeEmployerTypeKeepsAgencyUnderCompany(t *testing.T) {
+	for _, value := range []string{"Usaha/Perusahaan", "agency", "agensi"} {
+		got, valid := normalizeEmployerType(value)
+		if !valid || got != "usaha_perusahaan" {
+			t.Fatalf("normalizeEmployerType(%q) = (%q, %v); want usaha_perusahaan, true", value, got, valid)
+		}
 	}
 }
